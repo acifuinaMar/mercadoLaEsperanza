@@ -1,0 +1,109 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=yes">
+    <title>Mercado La Esperanza</title>
+    <link rel="stylesheet" href="/static/style.css">
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+</head>
+<body>
+    <div class="app-container">
+        <!-- Header con perfil -->
+        <header class="header">
+            <div class="logo">
+                <h1>Mercado La Esperanza</h1>
+            </div>
+            <div id="userInfo" class="user-info">
+                <div id="authButtons">
+                    <button class="btn btn-outline" onclick="mostrarLogin()">Ingresar</button>
+                    <button class="btn btn-primary" onclick="mostrarRegistro()">Registrarse</button>
+                </div>
+                <div id="userProfile" style="display:none;">
+                    <span id="userNameDisplay"></span>
+                    <button class="btn btn-small" onclick="cerrarSesion()">Salir</button>
+                </div>
+            </div>
+        </header>
+
+        <!-- Pestañas principales -->
+        <div class="tabs">
+            <button class="tab-btn active" onclick="cambiarTab('productos')">Productos</button>
+            <button class="tab-btn" id="pedidosTab" onclick="cambiarTab('pedidos')" style="display:none;">Mis Pedidos</button>
+            <button class="tab-btn" id="adminTab" onclick="cambiarTab('admin')" style="display:none;">Admin</button>
+        </div>
+
+        <!-- Contenido dinámico -->
+        <div id="productosTab" class="tab-content active">
+            <div class="search-bar">
+                <input type="text" id="searchProducto" placeholder="Buscar producto..." onkeyup="filtrarProductos()">
+            </div>
+            <div id="listaProductos" class="productos-grid"></div>
+        </div>
+
+        <div id="pedidosTabContent" class="tab-content" style="display:none;">
+            <div id="listaPedidos" class="pedidos-container"></div>
+        </div>
+
+        <div id="adminTabContent" class="tab-content" style="display:none;">
+            <div class="admin-panel">
+                <h3>Estadísticas</h3>
+                <div id="estadisticas" class="stats-cards"></div>
+                <h3>Reportes pendientes</h3>
+                <div id="reportesLista"></div>
+            </div>
+        </div>
+
+        <!-- Modal Login -->
+        <div id="loginModal" class="modal">
+            <div class="modal-content">
+                <span class="close" onclick="cerrarModal('loginModal')">&times;</span>
+                <h2>Iniciar Sesión</h2>
+                <input type="email" id="loginEmail" placeholder="Correo electrónico">
+                <input type="password" id="loginPassword" placeholder="Contraseña">
+                <button class="btn btn-primary" onclick="iniciarSesion()">Ingresar</button>
+            </div>
+        </div>
+
+        <!-- Registro -->
+        <div id="registroModal" class="modal">
+            <div class="modal-content">
+                <span class="close" onclick="cerrarModal('registroModal')">&times;</span>
+                <h2>Registrarse</h2>
+                
+                <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 10px;">
+                    <input type="text" id="regDPI" placeholder="DPI (sin guiones)" maxlength="13">
+                    <input type="text" id="regPrimerNombre" placeholder="Primer nombre">
+                    <input type="text" id="regSegundoNombre" placeholder="Segundo nombre (opcional)">
+                    <input type="text" id="regPrimerApellido" placeholder="Primer apellido">
+                    <input type="text" id="regSegundoApellido" placeholder="Segundo apellido (opcional)">
+                </div>
+                <input type="tel" id="regTelefono" placeholder="Teléfono">
+                <input type="email" id="regEmail" placeholder="Correo electrónico">
+                <input type="password" id="regPassword" placeholder="Contraseña">
+                <select id="regRol">
+                    <option value="comprador">Comprador</option>
+                    <option value="productor">Productor</option>
+                </select>
+                <button class="btn btn-primary" onclick="registrarse()">Registrarse</button>
+            </div>
+        </div>
+
+        <!-- Modal nuevo producto -->
+        <div id="productoModal" class="modal">
+            <div class="modal-content">
+                <span class="close" onclick="cerrarModal('productoModal')">&times;</span>
+                <h2>Nuevo Producto</h2>
+                <input type="text" id="prodNombre" placeholder="Nombre del producto">
+                <textarea id="prodDesc" placeholder="Descripción"></textarea>
+                <input type="number" id="prodPrecio" placeholder="Precio (Q)" step="0.01">
+                <input type="number" id="prodCantidad" placeholder="Cantidad disponible">
+                <input type="text" id="prodUnidad" placeholder="Unidad (kg, lb, unidad)" value="kg">
+                <button class="btn btn-primary" onclick="crearProducto()">Guardar Producto</button>
+            </div>
+        </div>
+    </div>
+
+    <script src="/static/script.js"></script>
+</body>
+</html>
