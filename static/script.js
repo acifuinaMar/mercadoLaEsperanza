@@ -20,44 +20,39 @@ async function verificarSesion() {
         
         if (data.logueado) {
             usuarioActual = data;
-            const authButtons = document.getElementById('authButtons');
-            const userProfile = document.getElementById('userProfile');
-            const userNameDisplay = document.getElementById('userNameDisplay');
+            document.getElementById('authButtons').style.display = 'none';
+            document.getElementById('userProfile').style.display = 'flex';
+            document.getElementById('userNameDisplay').innerHTML = data.nombre + ' (' + (data.rol === 'productor' ? 'Productor' : data.rol === 'admin' ? 'Admin' : 'Comprador') + ')';
             
-            if (authButtons) authButtons.style.display = 'none';
-            if (userProfile) userProfile.style.display = 'flex';
-            if (userNameDisplay) {
-                userNameDisplay.innerHTML = data.nombre + ' (' + (data.rol === 'productor' ? 'Productor' : data.rol === 'admin' ? 'Admin' : 'Comprador') + ')';
+            // Mostrar botón de nuevo producto SOLO si es productor
+            const nuevoProductoBtn = document.getElementById('nuevoProductoBtn');
+            if (nuevoProductoBtn) {
+                nuevoProductoBtn.style.display = data.rol === 'productor' ? 'block' : 'none';
             }
             
-            // Mostrar pestañas según rol
+            // Mostrar pestaña de pedidos para todos los roles
             const pedidosTab = document.getElementById('pedidosTab');
-            const adminTab = document.getElementById('adminTab');
-            const nuevoProductoBtn = document.getElementById('nuevoProductoBtn');
-            
             if (pedidosTab) pedidosTab.style.display = 'block';
             
-            if (data.rol === 'admin' && adminTab) {
-                adminTab.style.display = 'block';
-                cargarAdminPanel();
+            // Mostrar pestaña de admin SOLO si es admin
+            const adminTab = document.getElementById('adminTab');
+            if (adminTab) {
+                adminTab.style.display = data.rol === 'admin' ? 'block' : 'none';
             }
             
-            if (data.rol === 'productor' && nuevoProductoBtn) {
-                nuevoProductoBtn.style.display = 'block';
+            if (data.rol === 'admin') {
+                cargarAdminPanel();
             }
         } else {
             usuarioActual = null;
-            const authButtons = document.getElementById('authButtons');
-            const userProfile = document.getElementById('userProfile');
-            
-            if (authButtons) authButtons.style.display = 'flex';
-            if (userProfile) userProfile.style.display = 'none';
+            document.getElementById('authButtons').style.display = 'flex';
+            document.getElementById('userProfile').style.display = 'none';
             
             const nuevoProductoBtn = document.getElementById('nuevoProductoBtn');
             if (nuevoProductoBtn) nuevoProductoBtn.style.display = 'none';
         }
     } catch (error) {
-        console.error('Error verificar sesion:', error);
+        console.error('Error:', error);
     }
 }
 

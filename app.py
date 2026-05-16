@@ -18,77 +18,161 @@ def get_db_connection():
         port=5432
     )
 
-# Ruta principal
+# ==================== DTOs ====================
+
+class UsuarioDTO:
+    def __init__(self, dpi, primer_nombre, segundo_nombre, primer_apellido, 
+                 segundo_apellido, telefono, email, contrasena, rol):
+        self.dpi = dpi
+        self.primer_nombre = primer_nombre
+        self.segundo_nombre = segundo_nombre
+        self.primer_apellido = primer_apellido
+        self.segundo_apellido = segundo_apellido
+        self.telefono = telefono
+        self.email = email
+        self.contrasena = contrasena
+        self.rol = rol
+    
+    @classmethod
+    def from_json(cls, data):
+        return cls(
+            dpi=data.get('dpi'),
+            primer_nombre=data.get('primerNombre'),
+            segundo_nombre=data.get('segundoNombre'),
+            primer_apellido=data.get('primerApellido'),
+            segundo_apellido=data.get('segundoApellido'),
+            telefono=data.get('telefono'),
+            email=data.get('email'),
+            contrasena=data.get('contrasena'),
+            rol=data.get('rol')
+        )
+    
+    def validar(self):
+        campos = [self.dpi, self.primer_nombre, self.primer_apellido, 
+                  self.telefono, self.email, self.contrasena, self.rol]
+        return all(campos)
+
+class ProductoDTO:
+    def __init__(self, nombre, descripcion, precio, cantidad, unidad='kg'):
+        self.nombre = nombre
+        self.descripcion = descripcion
+        self.precio = precio
+        self.cantidad = cantidad
+        self.unidad = unidad
+    
+    @classmethod
+    def from_json(cls, data):
+        return cls(
+            nombre=data.get('nombre'),
+            descripcion=data.get('descripcion', ''),
+            precio=data.get('precio'),
+            cantidad=data.get('cantidad'),
+            unidad=data.get('unidad', 'kg')
+        )
+    
+    def validar(self):
+        return all([self.nombre, self.precio, self.cantidad])
+
+class PedidoDTO:
+    def __init__(self, producto_id, cantidad):
+        self.producto_id = producto_id
+        self.cantidad = cantidad
+    
+    @classmethod
+    def from_json(cls, data):
+        return cls(
+            producto_id=data.get('producto_id'),
+            cantidad=data.get('cantidad')
+        )
+    
+    def validar(self):
+        return all([self.producto_id, self.cantidad])
+
+class CalificacionDTO:
+    def __init__(self, pedido_id, calificado_id, puntuacion, comentario=''):
+        self.pedido_id = pedido_id
+        self.calificado_id = calificado_id
+        self.puntuacion = puntuacion
+        self.comentario = comentario
+    
+    @classmethod
+    def from_json(cls, data):
+        return cls(
+            pedido_id=data.get('pedido_id'),
+            calificado_id=data.get('calificado_id'),
+            puntuacion=data.get('puntuacion'),
+            comentario=data.get('comentario', '')
+        )
+    
+    def validar(self):
+        return all([self.pedido_id, self.calificado_id, self.puntuacion])
+
+class ReporteDTO:
+    def __init__(self, usuario_reportado, motivo):
+        self.usuario_reportado = usuario_reportado
+        self.motivo = motivo
+    
+    @classmethod
+    def from_json(cls, data):
+        return cls(
+            usuario_reportado=data.get('usuario_reportado'),
+            motivo=data.get('motivo')
+        )
+    
+    def validar(self):
+        return all([self.usuario_reportado, self.motivo])
+
+# ==================== RUTAS ====================
+
 @app.route('/')
 def index():
     return render_template('index.html')
 
-# ------------------ REGISTRO DE USUARIO ------------------
+# ------------------ AUTENTICACION ------------------
+
 @app.route('/api/registro', methods=['POST'])
 def registro():
-    data = request.json
-    print("Datos recibidos:", data)
-    
-    # Validar campos obligatorios
-    campos_requeridos = ['dpi', 'primerNombre', 'primerApellido', 'telefono', 'email', 'contrasena', 'rol']
-    for campo in campos_requeridos:
-        if campo not in data or not data[campo]:
-            return jsonify({'error': f'Falta el campo: {campo}'}), 400
-    
-    conn = get_db_connection()
-    cur = conn.cursor()
-    
     try:
-        # 1. Obtener ID del tipo de usuario
-        cur.execute("SELECT idtipousuario FROM tipousuario WHERE descripciontipousuario = %s", (data['rol'],))
+        usuario = UsuarioDTO.from_json(request.json)
+        print(f"Datos recibidos: {usuario.__dict__}")
+        
+        if not usuario.validar():
+            return jsonify({'error': 'Faltan campos obligatorios'}), 400
+        
+        conn = get_db_connection()
+        cur = conn.cursor()
+        
+        # Obtener ID del tipo de usuario
+        cur.execute("SELECT idtipousuario FROM tipousuario WHERE descripciontipousuario = %s", (usuario.rol,))
         tipo = cur.fetchone()
-        print(f"Tipo usuario encontrado: {tipo}")
-        
         if not tipo:
-            return jsonify({'error': f'Rol inválido: {data["rol"]}'}), 400
-        
+            return jsonify({'error': f'Rol inválido: {usuario.rol}'}), 400
         tipo_id = tipo[0]
         
-        # 2. Obtener ID del estado activo
+        # Obtener ID del estado activo
         cur.execute("SELECT idestado FROM estadousuario WHERE descripcionestadousuario = 'activo'")
         estado = cur.fetchone()
-        print(f"Estado encontrado: {estado}")
-        
         if not estado:
             return jsonify({'error': 'Estado "activo" no encontrado'}), 400
-        
         estado_id = estado[0]
         
-        # 3. Encriptar contraseña
-        hashed = bcrypt.hashpw(data['contrasena'].encode('utf-8'), bcrypt.gensalt())
+        # Encriptar contraseña
+        hashed = bcrypt.hashpw(usuario.contrasena.encode('utf-8'), bcrypt.gensalt())
         
-        # 4. Insertar usuario
+        # Insertar usuario
         cur.execute("""
             INSERT INTO usuario (
-                dpiusuario, 
-                primernombre, 
-                segundonombre, 
-                primerapellido, 
-                segundoapellido, 
-                telefonousuario, 
-                email, 
-                contrasena, 
-                tipousuario, 
-                idestadousuario
+                dpiusuario, primernombre, segundonombre, primerapellido, 
+                segundoapellido, telefonousuario, email, contrasena, 
+                tipousuario, idestadousuario
             )
             VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
             RETURNING idusuario
         """, (
-            data['dpi'], 
-            data['primerNombre'], 
-            data.get('segundoNombre'), 
-            data['primerApellido'], 
-            data.get('segundoApellido'), 
-            data['telefono'], 
-            data['email'], 
-            hashed.decode('utf-8'), 
-            tipo_id, 
-            estado_id
+            usuario.dpi, usuario.primer_nombre, usuario.segundo_nombre, 
+            usuario.primer_apellido, usuario.segundo_apellido, 
+            usuario.telefono, usuario.email, hashed.decode('utf-8'), 
+            tipo_id, estado_id
         ))
         
         nuevo_id = cur.fetchone()[0]
@@ -98,21 +182,24 @@ def registro():
         return jsonify({'mensaje': 'Usuario registrado exitosamente', 'id': nuevo_id}), 201
         
     except psycopg2.IntegrityError as e:
-        conn.rollback()
+        if 'conn' in locals():
+            conn.rollback()
         error_msg = str(e)
-        print(f"Error de integridad: {error_msg}")
         if 'email' in error_msg.lower():
             return jsonify({'error': 'El email ya está registrado'}), 400
         elif 'dpi' in error_msg.lower():
             return jsonify({'error': 'El DPI ya está registrado'}), 400
         return jsonify({'error': f'Error: {error_msg}'}), 400
     except Exception as e:
-        conn.rollback()
+        if 'conn' in locals():
+            conn.rollback()
         print(f"Error inesperado: {e}")
         return jsonify({'error': str(e)}), 500
     finally:
-        cur.close()
-        conn.close()
+        if 'cur' in locals():
+            cur.close()
+        if 'conn' in locals():
+            conn.close()
 
 @app.route('/api/verificar-sesion', methods=['GET'])
 def verificar_sesion():
@@ -145,38 +232,43 @@ def login():
     if not user:
         return jsonify({'error': 'Usuario no encontrado'}), 401
     
-    # user[0]=id, user[1]=nombre, user[2]=apellido, user[3]=contrasena, user[4]=rol, user[5]=estado
+    # user[0]=id, user[1]=nombre, user[2]=apellido, user[3]=contrasena, user[4]=rol_id, user[5]=estado
     if user[5] != 1:  # 1 = activo
         return jsonify({'error': 'Usuario bloqueado o suspendido'}), 403
     
     if bcrypt.checkpw(contrasena.encode('utf-8'), user[3].encode('utf-8')):
-        session['usuario_id'] = user[0]
-        session['rol'] = user[4]
-        session['nombre'] = f"{user[1]} {user[2]}"
+        # Convertir rol_id a texto para el frontend
+        rol_texto = ''
+        if user[4] == 1:
+            rol_texto = 'productor'
+        elif user[4] == 2:
+            rol_texto = 'comprador'
+        elif user[4] == 3:
+            rol_texto = 'admin'
+        else:
+            rol_texto = 'comprador'
         
-        # Obtener el nombre del rol
-        cur2 = get_db_connection()
-        cur2cursor = cur2.cursor()
-        cur2cursor.execute("SELECT descripciontipousuario FROM tipousuario WHERE idtipousuario = %s", (user[4],))
-        rol_nombre = cur2cursor.fetchone()
-        cur2cursor.close()
-        cur2.close()
+        session['usuario_id'] = user[0]
+        session['rol'] = rol_texto  # Guardamos texto, no número
+        session['rol_id'] = user[4]  # Guardamos también el número por si acaso
+        session['nombre'] = f"{user[1]} {user[2]}"
         
         return jsonify({
             'id': user[0],
             'nombre': session['nombre'],
-            'rol': rol_nombre[0] if rol_nombre else user[4],
+            'rol': rol_texto,
             'mensaje': 'Sesión iniciada'
         })
     else:
         return jsonify({'error': 'Contraseña incorrecta'}), 401
-    
+ 
 @app.route('/api/logout', methods=['POST'])
 def logout():
     session.clear()
     return jsonify({'mensaje': 'Sesión cerrada'})
 
 # ------------------ PRODUCTOS ------------------
+
 @app.route('/api/productos', methods=['GET'])
 def listar_productos():
     conn = get_db_connection()
@@ -196,7 +288,6 @@ def listar_productos():
     cur.close()
     conn.close()
     
-    # Convertir a lista de diccionarios
     resultado = []
     for p in productos:
         resultado.append({
@@ -214,151 +305,168 @@ def listar_productos():
 
 @app.route('/api/mis-productos', methods=['GET'])
 def mis_productos():
-    if 'usuario_id' not in session or session['rol'] != 'productor':
-        return jsonify({'error': 'No autorizado'}), 403
+    if 'usuario_id' not in session:
+        return jsonify({'error': 'No autorizado'}), 401
+    
+    if session.get('rol') != 'productor':
+        return jsonify({'error': 'Solo productores'}), 403
     
     conn = get_db_connection()
     cur = conn.cursor()
-    cur.execute("SELECT * FROM productos WHERE productor_id = %s AND activo = TRUE", (session['usuario_id'],))
+    cur.execute("SELECT * FROM producto WHERE idproductor = %s AND activo = true", (session['usuario_id'],))
     productos = cur.fetchall()
     cur.close()
     conn.close()
-    return jsonify(productos)
+    
+    resultado = []
+    for p in productos:
+        resultado.append({
+            'idproducto': p[0],
+            'nombreproducto': p[1],
+            'descripcion': p[2],
+            'precio': float(p[3]),
+            'idunidadmedida': p[4],
+            'idproductor': p[5],
+            'activo': p[6],
+            'fecharegistro': p[7],
+            'cantidaddisponible': float(p[8]) if len(p) > 8 and p[8] else 0
+        })
+    
+    return jsonify(resultado)
 
-# ==================== CREAR PRODUCTO (con unidad de medida) ====================
 @app.route('/api/productos', methods=['POST'])
 def crear_producto():
     if 'usuario_id' not in session:
         return jsonify({'error': 'Debes iniciar sesión'}), 401
     
-    # Verificar que sea productor
-    conn = get_db_connection()
-    cur = conn.cursor()
-    cur.execute("SELECT tipousuario FROM usuario WHERE idusuario = %s", (session['usuario_id'],))
-    user = cur.fetchone()
-    cur.close()
-    conn.close()
-    
-    if not user or user[0] != 1:  # 1 = productor
+    # Verificar que sea productor usando el rol guardado en sesión
+    if session.get('rol') != 'productor':
         return jsonify({'error': 'Solo los productores pueden crear productos'}), 403
     
-    data = request.json
-    print("Nuevo producto:", data)
+    try:
+        producto = ProductoDTO.from_json(request.json)
+        print(f"Nuevo producto: {producto.__dict__}")
+        
+        if not producto.validar():
+            return jsonify({'error': 'Faltan campos: nombre, precio, cantidad'}), 400
+        
+        conn = get_db_connection()
+        cur = conn.cursor()
+        
+        cur.execute("SELECT idunidad FROM unidadmedida WHERE abreviatura = %s OR nombreunidad = %s", 
+                    (producto.unidad, producto.unidad))
+        unidad = cur.fetchone()
+        unidad_id = unidad[0] if unidad else 1
+        
+        cur.execute("""
+            INSERT INTO producto (nombreproducto, descripcion, precio, idunidadmedida, idproductor, cantidaddisponible)
+            VALUES (%s, %s, %s, %s, %s, %s)
+            RETURNING idproducto
+        """, (producto.nombre, producto.descripcion, producto.precio, 
+              unidad_id, session['usuario_id'], producto.cantidad))
+        
+        nuevo_id = cur.fetchone()[0]
+        conn.commit()
+        cur.close()
+        conn.close()
+        
+        return jsonify({'mensaje': 'Producto registrado', 'id': nuevo_id}), 201
+        
+    except Exception as e:
+        if 'conn' in locals():
+            conn.rollback()
+        print(f"Error: {e}")
+        return jsonify({'error': str(e)}), 500
     
-    # Validar campos
-    if not data.get('nombre') or not data.get('precio') or not data.get('cantidad'):
-        return jsonify({'error': 'Faltan campos: nombre, precio, cantidad'}), 400
-    
-    # Obtener ID de unidad de medida
-    conn = get_db_connection()
-    cur = conn.cursor()
-    cur.execute("SELECT idunidad FROM unidadmedida WHERE abreviatura = %s OR nombreunidad = %s", 
-                (data.get('unidad', 'kg'), data.get('unidad', 'kg')))
-    unidad = cur.fetchone()
-    
-    unidad_id = unidad[0] if unidad else 1  # 1 = kg por defecto
-    
-    # Insertar producto
-    cur.execute("""
-        INSERT INTO producto (nombreproducto, descripcion, precio, idunidadmedida, idproductor, cantidaddisponible)
-        VALUES (%s, %s, %s, %s, %s, %s)
-        RETURNING idproducto
-    """, (data['nombre'], data.get('descripcion', ''), data['precio'], unidad_id, session['usuario_id'], data['cantidad']))
-    
-    nuevo_id = cur.fetchone()[0]
-    conn.commit()
-    cur.close()
-    conn.close()
-    
-    return jsonify({'mensaje': 'Producto registrado', 'id': nuevo_id}), 201
-
 @app.route('/api/productos/<int:producto_id>', methods=['PUT'])
 def actualizar_producto(producto_id):
-    if 'usuario_id' not in session or session['rol'] != 'productor':
+    if 'usuario_id' not in session or session['rol'] != 1:
         return jsonify({'error': 'No autorizado'}), 403
     
     data = request.json
     conn = get_db_connection()
     cur = conn.cursor()
     cur.execute("""
-        UPDATE productos 
-        SET precio = %s, cantidad_disponible = %s, nombre = %s, descripcion = %s
-        WHERE id = %s AND productor_id = %s
-    """, (data['precio'], data['cantidad'], data['nombre'], data.get('descripcion', ''), producto_id, session['usuario_id']))
+        UPDATE producto 
+        SET precio = %s, cantidaddisponible = %s, nombreproducto = %s, descripcion = %s
+        WHERE idproducto = %s AND idproductor = %s
+    """, (data['precio'], data['cantidad'], data['nombre'], data.get('descripcion', ''), 
+          producto_id, session['usuario_id']))
     conn.commit()
     cur.close()
     conn.close()
     return jsonify({'mensaje': 'Producto actualizado'})
 
 # ------------------ PEDIDOS ------------------
+
 @app.route('/api/pedidos', methods=['POST'])
 def crear_pedido():
     if 'usuario_id' not in session:
         return jsonify({'error': 'Debes iniciar sesión'}), 401
     
-    data = request.json
-    producto_id = data.get('producto_id')
-    cantidad = data.get('cantidad')
-    
-    if not producto_id or not cantidad:
-        return jsonify({'error': 'Faltan producto_id o cantidad'}), 400
-    
-    conn = get_db_connection()
-    cur = conn.cursor()
-    
-    # Obtener producto y su productor
-    cur.execute("""
-        SELECT p.idproductor, p.precio, p.cantidaddisponible, p.nombreproducto
-        FROM producto p
-        WHERE p.idproducto = %s AND p.activo = true
-    """, (producto_id,))
-    producto = cur.fetchone()
-    
-    if not producto:
+    try:
+        pedido = PedidoDTO.from_json(request.json)
+        
+        if not pedido.validar():
+            return jsonify({'error': 'Faltan producto_id o cantidad'}), 400
+        
+        conn = get_db_connection()
+        cur = conn.cursor()
+        
+        cur.execute("""
+            SELECT p.idproductor, p.precio, p.cantidaddisponible, p.nombreproducto
+            FROM producto p
+            WHERE p.idproducto = %s AND p.activo = true
+        """, (pedido.producto_id,))
+        producto = cur.fetchone()
+        
+        if not producto:
+            cur.close()
+            conn.close()
+            return jsonify({'error': 'Producto no disponible'}), 404
+        
+        productor_id = producto[0]
+        precio = producto[1]
+        disponible = producto[2]
+        
+        if pedido.cantidad > disponible:
+            cur.close()
+            conn.close()
+            return jsonify({'error': f'Solo hay {disponible} disponibles'}), 400
+        
+        cur.execute("SELECT idestadopedido FROM estadopedido WHERE descripcionestadopedido = 'pendiente'")
+        estado = cur.fetchone()
+        estado_id = estado[0] if estado else 1
+        
+        cur.execute("""
+            INSERT INTO pedido (idcliente, idproductor, idestadopedido)
+            VALUES (%s, %s, %s)
+            RETURNING idpedido
+        """, (session['usuario_id'], productor_id, estado_id))
+        
+        pedido_id = cur.fetchone()[0]
+        
+        cur.execute("""
+            INSERT INTO productopedido (idpedido, idproducto, cantidad, preciounitario)
+            VALUES (%s, %s, %s, %s)
+        """, (pedido_id, pedido.producto_id, pedido.cantidad, precio))
+        
+        cur.execute("""
+            INSERT INTO historialpedido (idpedido, estadohistorialpedido, comentario)
+            VALUES (%s, 'pendiente', 'Pedido creado por cliente')
+        """, (pedido_id,))
+        
+        conn.commit()
         cur.close()
         conn.close()
-        return jsonify({'error': 'Producto no disponible'}), 404
-    
-    productor_id = producto[0]
-    precio = producto[1]
-    disponible = producto[2]
-    
-    if cantidad > disponible:
-        cur.close()
-        conn.close()
-        return jsonify({'error': f'Solo hay {disponible} disponibles'}), 400
-    
-    # Obtener estado pendiente (id = 1 generalmente)
-    cur.execute("SELECT idestadopedido FROM estadopedido WHERE descripcionestadopedido = 'pendiente'")
-    estado = cur.fetchone()
-    estado_id = estado[0] if estado else 1
-    
-    # Crear pedido
-    cur.execute("""
-        INSERT INTO pedido (idcliente, idproductor, idestadopedido)
-        VALUES (%s, %s, %s)
-        RETURNING idpedido
-    """, (session['usuario_id'], productor_id, estado_id))
-    
-    pedido_id = cur.fetchone()[0]
-    
-    # Crear producto_pedido
-    cur.execute("""
-        INSERT INTO productopedido (idpedido, idproducto, cantidad, preciounitario)
-        VALUES (%s, %s, %s, %s)
-    """, (pedido_id, producto_id, cantidad, precio))
-    
-    # Registrar en historial
-    cur.execute("""
-        INSERT INTO historialpedido (idpedido, estadohistorialpedido, comentario)
-        VALUES (%s, 'pendiente', 'Pedido creado por cliente')
-    """, (pedido_id,))
-    
-    conn.commit()
-    cur.close()
-    conn.close()
-    
-    return jsonify({'mensaje': 'Pedido creado', 'pedido_id': pedido_id}), 201
+        
+        return jsonify({'mensaje': 'Pedido creado', 'pedido_id': pedido_id}), 201
+        
+    except Exception as e:
+        if 'conn' in locals():
+            conn.rollback()
+        print(f"Error: {e}")
+        return jsonify({'error': str(e)}), 500
 
 @app.route('/api/mis-pedidos', methods=['GET'])
 def mis_pedidos():
@@ -368,16 +476,14 @@ def mis_pedidos():
     conn = get_db_connection()
     cur = conn.cursor()
     
-    # Ver el rol del usuario
-    cur.execute("SELECT tipousuario FROM usuario WHERE idusuario = %s", (session['usuario_id'],))
-    user = cur.fetchone()
-    rol_id = user[0] if user else None
+    rol_usuario = session.get('rol')
     
-    if rol_id == 2:  # Comprador
+    if rol_usuario == 'comprador':
         cur.execute("""
             SELECT p.idpedido, prod.nombreproducto, pp.cantidad, pp.preciounitario,
                    p.idestadopedido, ep.descripcionestadopedido,
-                   u.primernombre || ' ' || u.primerapellido as productor_nombre
+                   u.primernombre || ' ' || u.primerapellido as contraparte_nombre,
+                   u.idusuario as contraparte_id
             FROM pedido p
             JOIN productopedido pp ON p.idpedido = pp.idpedido
             JOIN producto prod ON pp.idproducto = prod.idproducto
@@ -386,11 +492,12 @@ def mis_pedidos():
             WHERE p.idcliente = %s
             ORDER BY p.fechasolicitud DESC
         """, (session['usuario_id'],))
-    else:  # Productor o admin
+    else:  # productor o admin
         cur.execute("""
             SELECT p.idpedido, prod.nombreproducto, pp.cantidad, pp.preciounitario,
                    p.idestadopedido, ep.descripcionestadopedido,
-                   u.primernombre || ' ' || u.primerapellido as comprador_nombre
+                   u.primernombre || ' ' || u.primerapellido as contraparte_nombre,
+                   u.idusuario as contraparte_id
             FROM pedido p
             JOIN productopedido pp ON p.idpedido = pp.idpedido
             JOIN producto prod ON pp.idproducto = prod.idproducto
@@ -409,50 +516,68 @@ def mis_pedidos():
         resultado.append({
             'idpedido': p[0],
             'producto_nombre': p[1],
-            'cantidad': float(p[2]),
+            'cantidad_solicitada': float(p[2]),
             'precio': float(p[3]),
             'estado_id': p[4],
             'estado': p[5],
-            'contraparte_nombre': p[6]
+            'contraparte_nombre': p[6],
+            'contraparte_id': p[7]
         })
     
     return jsonify(resultado)
 
 @app.route('/api/pedidos/<int:pedido_id>/gestionar', methods=['PUT'])
 def gestionar_pedido(pedido_id):
-    if 'usuario_id' not in session or session['rol'] != 'productor':
-        return jsonify({'error': 'No autorizado'}), 403
+    if 'usuario_id' not in session:
+        return jsonify({'error': 'Debes iniciar sesión'}), 401
+    
+    if session.get('rol') != 'productor':
+        return jsonify({'error': 'Solo productores pueden gestionar pedidos'}), 403
     
     data = request.json
-    nuevo_estado = data.get('estado')  # 'aceptado' o 'rechazado'
+    nuevo_estado = data.get('estado')
     
     conn = get_db_connection()
     cur = conn.cursor()
     
     if nuevo_estado == 'aceptado':
-        # Verificar disponibilidad
         cur.execute("""
-            SELECT p.cantidad_solicitada, pr.cantidad_disponible 
-            FROM pedidos p
-            JOIN productos pr ON p.producto_id = pr.id
-            WHERE p.id = %s AND p.productor_id = %s
+            SELECT p.idestadopedido, pr.cantidaddisponible, pp.cantidad
+            FROM pedido p
+            JOIN productopedido pp ON p.idpedido = pp.idpedido
+            JOIN producto pr ON pp.idproducto = pr.idproducto
+            WHERE p.idpedido = %s AND p.idproductor = %s
         """, (pedido_id, session['usuario_id']))
-        pedido = cur.fetchone()
-        if pedido and pedido['cantidad_solicitada'] > pedido['cantidad_disponible']:
-            return jsonify({'error': 'Ya no hay suficiente stock'}), 400
-        # Restar stock
-        cur.execute("""
-            UPDATE productos 
-            SET cantidad_disponible = cantidad_disponible - (
-                SELECT cantidad_solicitada FROM pedidos WHERE id = %s
-            )
-            WHERE id = (SELECT producto_id FROM pedidos WHERE id = %s)
-        """, (pedido_id, pedido_id))
+        pedido_info = cur.fetchone()
+        
+        if pedido_info:
+            if pedido_info[2] > pedido_info[1]:
+                cur.close()
+                conn.close()
+                return jsonify({'error': 'Ya no hay suficiente stock'}), 400
+            
+            cur.execute("""
+                UPDATE producto 
+                SET cantidaddisponible = cantidaddisponible - %s
+                WHERE idproducto = (SELECT idproducto FROM productopedido WHERE idpedido = %s)
+            """, (pedido_info[2], pedido_id))
     
-    cur.execute("""
-        UPDATE pedidos SET estado = %s 
-        WHERE id = %s AND productor_id = %s
-    """, (nuevo_estado, pedido_id, session['usuario_id']))
+    # Obtener ID del nuevo estado
+    cur.execute("SELECT idestadopedido FROM estadopedido WHERE descripcionestadopedido = %s", (nuevo_estado,))
+    estado_id = cur.fetchone()
+    
+    if estado_id:
+        cur.execute("""
+            UPDATE pedido SET idestadopedido = %s 
+            WHERE idpedido = %s AND idproductor = %s
+        """, (estado_id[0], pedido_id, session['usuario_id']))
+        
+        # Registrar en historial
+        cur.execute("""
+            INSERT INTO historialpedido (idpedido, estadohistorialpedido, comentario)
+            VALUES (%s, %s, 'Productor gestionó el pedido')
+        """, (pedido_id, nuevo_estado))
+    
     conn.commit()
     cur.close()
     conn.close()
@@ -466,25 +591,72 @@ def confirmar_entrega(pedido_id):
     conn = get_db_connection()
     cur = conn.cursor()
     
-    cur.execute("SELECT * FROM pedidos WHERE id = %s", (pedido_id,))
+    # Obtener el pedido
+    cur.execute("""
+        SELECT idcliente, idproductor, idestadopedido 
+        FROM pedido 
+        WHERE idpedido = %s
+    """, (pedido_id,))
     pedido = cur.fetchone()
+    
     if not pedido:
+        cur.close()
+        conn.close()
         return jsonify({'error': 'Pedido no encontrado'}), 404
     
-    if pedido['estado'] != 'aceptado':
+    # Verificar que esté aceptado (idestadopedido = 2 para aceptado)
+    if pedido[2] != 2:
+        cur.close()
+        conn.close()
         return jsonify({'error': 'El pedido debe estar aceptado primero'}), 400
     
-    if session['usuario_id'] == pedido['comprador_id']:
-        cur.execute("UPDATE pedidos SET confirmacion_comprador = TRUE WHERE id = %s", (pedido_id,))
-    elif session['usuario_id'] == pedido['productor_id']:
-        cur.execute("UPDATE pedidos SET confirmacion_productor = TRUE WHERE id = %s", (pedido_id,))
+    # Verificar si ya existe una entrega
+    cur.execute("SELECT * FROM entrega WHERE idpedido = %s", (pedido_id,))
+    entrega = cur.fetchone()
+    
+    if not entrega:
+        # Crear registro de entrega
+        cur.execute("""
+            INSERT INTO entrega (idpedido, idestadoentrega)
+            VALUES (%s, 1)
+            RETURNING identrega
+        """, (pedido_id,))
+        identrega = cur.fetchone()[0]
     else:
+        identrega = entrega[0]
+    
+    # Actualizar confirmaciones
+    if session['usuario_id'] == pedido[0]:
+        cur.execute("UPDATE entrega SET confirmadocliente = true WHERE identrega = %s", (identrega,))
+    elif session['usuario_id'] == pedido[1]:
+        cur.execute("UPDATE entrega SET confirmadoproductor = true WHERE identrega = %s", (identrega,))
+    else:
+        cur.close()
+        conn.close()
         return jsonify({'error': 'No eres parte del pedido'}), 403
     
-    cur.execute("SELECT confirmacion_comprador, confirmacion_productor FROM pedidos WHERE id = %s", (pedido_id,))
+    # Verificar si ambas confirmaron
+    cur.execute("SELECT confirmadocliente, confirmadoproductor FROM entrega WHERE identrega = %s", (identrega,))
     actualizado = cur.fetchone()
-    if actualizado['confirmacion_comprador'] and actualizado['confirmacion_productor']:
-        cur.execute("UPDATE pedidos SET estado = 'completado' WHERE id = %s", (pedido_id,))
+    
+    if actualizado[0] and actualizado[1]:
+        # Actualizar estado de pedido a completado
+        cur.execute("SELECT idestadopedido FROM estadopedido WHERE descripcionestadopedido = 'completado'")
+        completado_id = cur.fetchone()
+        if completado_id:
+            cur.execute("UPDATE pedido SET idestadopedido = %s WHERE idpedido = %s", (completado_id[0], pedido_id))
+        
+        # Actualizar estado de entrega
+        cur.execute("SELECT idestadoentrega FROM estadoentrega WHERE descripcionestadoentrega = 'entregado'")
+        entregado_id = cur.fetchone()
+        if entregado_id:
+            cur.execute("UPDATE entrega SET idestadoentrega = %s WHERE identrega = %s", (entregado_id[0], identrega))
+        
+        # Registrar en historial
+        cur.execute("""
+            INSERT INTO historialpedido (idpedido, estadohistorialpedido, comentario)
+            VALUES (%s, 'completado', 'Entrega confirmada por ambas partes')
+        """, (pedido_id,))
     
     conn.commit()
     cur.close()
@@ -492,116 +664,211 @@ def confirmar_entrega(pedido_id):
     return jsonify({'mensaje': 'Entrega confirmada'})
 
 # ------------------ CALIFICACIONES ------------------
+
 @app.route('/api/calificar', methods=['POST'])
 def calificar():
     if 'usuario_id' not in session:
         return jsonify({'error': 'Inicia sesión'}), 401
     
-    data = request.json
-    conn = get_db_connection()
-    cur = conn.cursor()
-    
-    # Verificar que el pedido esté completado
-    cur.execute("SELECT estado FROM pedidos WHERE id = %s", (data['pedido_id'],))
-    pedido = cur.fetchone()
-    if not pedido or pedido['estado'] != 'completado':
-        return jsonify({'error': 'Solo se puede calificar después de completar la entrega'}), 400
-    
-    cur.execute("""
-        INSERT INTO calificaciones (calificador_id, calificado_id, pedido_id, puntuacion, comentario)
-        VALUES (%s, %s, %s, %s, %s)
-    """, (session['usuario_id'], data['calificado_id'], data['pedido_id'], data['puntuacion'], data.get('comentario', '')))
-    conn.commit()
-    cur.close()
-    conn.close()
-    return jsonify({'mensaje': 'Calificación registrada'}), 201
+    try:
+        calificacion = CalificacionDTO.from_json(request.json)
+        
+        if not calificacion.validar():
+            return jsonify({'error': 'Faltan campos: pedido_id, calificado_id, puntuacion'}), 400
+        
+        if calificacion.puntuacion < 1 or calificacion.puntuacion > 5:
+            return jsonify({'error': 'La puntuación debe ser entre 1 y 5'}), 400
+        
+        conn = get_db_connection()
+        cur = conn.cursor()
+        
+        # Verificar que el pedido esté completado
+        cur.execute("""
+            SELECT p.idestadopedido, ep.descripcionestadopedido
+            FROM pedido p
+            JOIN estadopedido ep ON p.idestadopedido = ep.idestadopedido
+            WHERE p.idpedido = %s
+        """, (calificacion.pedido_id,))
+        pedido = cur.fetchone()
+        
+        if not pedido or pedido[1] != 'completado':
+            cur.close()
+            conn.close()
+            return jsonify({'error': 'Solo se puede calificar después de completar la entrega'}), 400
+        
+        # Verificar que no haya calificado antes
+        cur.execute("""
+            SELECT * FROM calificacion 
+            WHERE idpedido = %s AND idcalificador = %s
+        """, (calificacion.pedido_id, session['usuario_id']))
+        existe = cur.fetchone()
+        
+        if existe:
+            cur.close()
+            conn.close()
+            return jsonify({'error': 'Ya calificaste este pedido'}), 400
+        
+        cur.execute("""
+            INSERT INTO calificacion (idcalificador, idcalificado, idpedido, puntaje, comentario)
+            VALUES (%s, %s, %s, %s, %s)
+        """, (session['usuario_id'], calificacion.calificado_id, 
+              calificacion.pedido_id, calificacion.puntuacion, calificacion.comentario))
+        
+        conn.commit()
+        cur.close()
+        conn.close()
+        
+        return jsonify({'mensaje': 'Calificación registrada'}), 201
+        
+    except Exception as e:
+        if 'conn' in locals():
+            conn.rollback()
+        print(f"Error: {e}")
+        return jsonify({'error': str(e)}), 500
 
 @app.route('/api/calificaciones/<int:usuario_id>', methods=['GET'])
 def obtener_calificaciones(usuario_id):
     conn = get_db_connection()
     cur = conn.cursor()
     cur.execute("""
-        SELECT AVG(puntuacion) as promedio, COUNT(*) as total
-        FROM calificaciones
-        WHERE calificado_id = %s
+        SELECT COALESCE(AVG(puntaje), 0) as promedio, COUNT(*) as total
+        FROM calificacion
+        WHERE idcalificado = %s
     """, (usuario_id,))
     resultado = cur.fetchone()
     cur.close()
     conn.close()
-    return jsonify(resultado or {'promedio': 0, 'total': 0})
+    return jsonify({
+        'promedio': float(resultado[0]) if resultado[0] else 0,
+        'total': resultado[1] if resultado[1] else 0
+    })
 
 # ------------------ ADMIN ------------------
+
 @app.route('/api/admin/reportes', methods=['GET'])
 def ver_reportes():
-    if 'usuario_id' not in session or session['rol'] != 'admin':
+    if 'usuario_id' not in session or session['rol'] != 3:
         return jsonify({'error': 'Solo administradores'}), 403
     
     conn = get_db_connection()
     cur = conn.cursor()
     cur.execute("""
-        SELECT r.*, u1.nombre_completo as reportante_nombre, u2.nombre_completo as reportado_nombre
-        FROM reportes r
-        JOIN usuarios u1 ON r.usuario_reportante = u1.id
-        JOIN usuarios u2 ON r.usuario_reportado = u2.id
+        SELECT r.idreporte, r.comentarioreporte, r.fechaenviorprt, r.estado,
+               u1.primernombre || ' ' || u1.primerapellido as reportante_nombre,
+               u2.primernombre || ' ' || u2.primerapellido as reportado_nombre,
+               r.idemisor, r.idreceptor
+        FROM reporte r
+        JOIN usuario u1 ON r.idemisor = u1.idusuario
+        JOIN usuario u2 ON r.idreceptor = u2.idusuario
         WHERE r.estado = 'pendiente'
-        ORDER BY r.fecha_reporte DESC
+        ORDER BY r.fechaenviorprt DESC
     """)
     reportes = cur.fetchall()
     cur.close()
     conn.close()
-    return jsonify(reportes)
+    
+    resultado = []
+    for r in reportes:
+        resultado.append({
+            'idreporte': r[0],
+            'motivo': r[1],
+            'fecha': r[2],
+            'estado': r[3],
+            'reportante_nombre': r[4],
+            'reportado_nombre': r[5],
+            'usuario_reportado': r[7]
+        })
+    
+    return jsonify(resultado)
 
 @app.route('/api/admin/reportar', methods=['POST'])
 def reportar_usuario():
     if 'usuario_id' not in session:
         return jsonify({'error': 'Inicia sesión'}), 401
     
-    data = request.json
-    conn = get_db_connection()
-    cur = conn.cursor()
-    cur.execute("""
-        INSERT INTO reportes (usuario_reportante, usuario_reportado, motivo)
-        VALUES (%s, %s, %s)
-    """, (session['usuario_id'], data['usuario_reportado'], data['motivo']))
-    conn.commit()
-    cur.close()
-    conn.close()
-    return jsonify({'mensaje': 'Reporte enviado a la asociación'}), 201
+    try:
+        reporte = ReporteDTO.from_json(request.json)
+        
+        if not reporte.validar():
+            return jsonify({'error': 'Faltan campos: usuario_reportado, motivo'}), 400
+        
+        conn = get_db_connection()
+        cur = conn.cursor()
+        cur.execute("""
+            INSERT INTO reporte (idemisor, idreceptor, comentarioreporte, estado)
+            VALUES (%s, %s, %s, 'pendiente')
+        """, (session['usuario_id'], reporte.usuario_reportado, reporte.motivo))
+        
+        conn.commit()
+        cur.close()
+        conn.close()
+        
+        return jsonify({'mensaje': 'Reporte enviado a la asociación'}), 201
+        
+    except Exception as e:
+        if 'conn' in locals():
+            conn.rollback()
+        print(f"Error: {e}")
+        return jsonify({'error': str(e)}), 500
 
 @app.route('/api/admin/bloquear/<int:usuario_id>', methods=['PUT'])
 def bloquear_usuario(usuario_id):
-    if 'usuario_id' not in session or session['rol'] != 'admin':
+    if 'usuario_id' not in session or session['rol'] != 3:
         return jsonify({'error': 'Solo administradores'}), 403
     
     conn = get_db_connection()
     cur = conn.cursor()
-    cur.execute("UPDATE usuarios SET estado = 'bloqueado' WHERE id = %s", (usuario_id,))
-    conn.commit()
+    cur.execute("SELECT idestado FROM estadousuario WHERE descripcionestadousuario = 'bloqueado'")
+    bloqueado_id = cur.fetchone()
+    
+    if bloqueado_id:
+        cur.execute("UPDATE usuario SET idestadousuario = %s WHERE idusuario = %s", (bloqueado_id[0], usuario_id))
+        conn.commit()
+    
     cur.close()
     conn.close()
     return jsonify({'mensaje': 'Usuario bloqueado'})
 
 @app.route('/api/estadisticas', methods=['GET'])
 def estadisticas():
-    if 'usuario_id' not in session or session['rol'] != 'admin':
+    if 'usuario_id' not in session:
         return jsonify({'error': 'No autorizado'}), 403
+    
+    if session.get('rol') != 'admin':
+        return jsonify({'error': 'Solo administradores'}), 403
     
     conn = get_db_connection()
     cur = conn.cursor()
+    
+    # Total de usuarios (activos)
+    cur.execute("SELECT COUNT(*) FROM usuario WHERE idestadousuario = 1")
+    total_usuarios = cur.fetchone()[0]
+    
+    # Total de productos activos
+    cur.execute("SELECT COUNT(*) FROM producto WHERE activo = true")
+    total_productos = cur.fetchone()[0]
+    
+    # Ventas completadas
     cur.execute("""
-        SELECT 
-            COUNT(DISTINCT p.id) as total_pedidos,
-            COUNT(DISTINCT u.id) as total_usuarios,
-            COUNT(DISTINCT pr.id) as total_productos,
-            SUM(CASE WHEN p.estado = 'completado' THEN 1 ELSE 0 END) as ventas_completadas
-        FROM usuarios u
-        LEFT JOIN pedidos p ON 1=1
-        LEFT JOIN productos pr ON 1=1
+        SELECT COUNT(*) FROM pedido 
+        WHERE idestadopedido = (SELECT idestadopedido FROM estadopedido WHERE descripcionestadopedido = 'completado')
     """)
-    stats = cur.fetchone()
+    ventas_completadas = cur.fetchone()[0]
+    
+    # Total de pedidos
+    cur.execute("SELECT COUNT(*) FROM pedido")
+    total_pedidos = cur.fetchone()[0]
+    
     cur.close()
     conn.close()
-    return jsonify(stats)
+    
+    return jsonify({
+        'total_usuarios': total_usuarios,
+        'total_productos': total_productos,
+        'ventas_completadas': ventas_completadas,
+        'total_pedidos': total_pedidos
+    })
+# ==================== INICIO ====================
 
 if __name__ == '__main__':
     app.run(debug=True, port=5000)
