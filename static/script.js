@@ -226,6 +226,8 @@ async function cargarMisPedidos() {
         
         container.innerHTML = pedidos.map(p => {
             const esProductor = usuarioActual && usuarioActual.rol === 'productor';
+            // Asegurar que el nombre no sea null o undefined
+            const nombreContraparte = p.contraparte_nombre || (esProductor ? 'Comprador' : 'Productor');
             
             let botonesHtml = '';
             if (p.estado === 'pendiente' && esProductor) {
@@ -237,22 +239,34 @@ async function cargarMisPedidos() {
                 `;
             }
             
+            if (p.estado === 'aceptado') {
+                botonesHtml = `
+                    <div style="margin-top: 10px;">
+                        <button class="btn btn-primary btn-small" onclick="confirmarEntrega(${p.idpedido})">Confirmar Entrega</button>
+                    </div>
+                `;
+            }
+            
             if (p.estado === 'completado') {
                 botonesHtml = `
                     <div style="margin-top: 10px;">
-                        <button class="btn btn-small" onclick="calificarUsuario(${p.idpedido}, ${esProductor ? p.comprador_id : p.productor_id})">Calificar</button>
+                        <button class="btn btn-small" onclick="calificarUsuario(${p.idpedido}, ${p.contraparte_id || 0})">Calificar</button>
                     </div>
                 `;
             }
             
             return `
-                <div class="pedido-card">
-                    <strong>${p.producto_nombre}</strong> - ${p.cantidad_solicitada} unidades
-                    <div><span class="pedido-estado estado-${p.estado}">${(p.estado || 'pendiente').toUpperCase()}</span></div>
-                    <div>${esProductor ? 'Comprador: ' + (p.comprador_nombre || 'Desconocido') : 'Productor: ' + (p.productor_nombre || 'Desconocido')}</div>
+            <div class="pedido-card">
+                <strong>${p.producto_nombre}</strong> - ${p.cantidad_solicitada} unidades
+                <div>Precio: Q${parseFloat(p.precio).toFixed(2)}</div>
+                <div><span class="pedido-estado estado-${p.estado}">${(p.estado || 'pendiente').toUpperCase()}</span></div>
+                <div>${esProductor ? 'Comprador' : 'Productor'}: ${nombreContraparte}</div>
+                <div style="margin-top: 10px;">
+                    <button class="btn btn-small" onclick="abrirChat(${p.idpedido}, '${p.producto_nombre}')">Negociar</button>
                     ${botonesHtml}
                 </div>
-            `;
+            </div>
+        `;
         }).join('');
     } catch (error) {
         console.error('Error cargando pedidos:', error);
@@ -533,6 +547,203 @@ function calificarUsuario(pedidoId, calificadoId) {
         console.error('Error:', error);
         alert('Error al calificar');
     });
+}
+
+// ==================== CHAT Y NEGOCIACION ====================
+
+let pedidoActual = null;
+
+async function abrirChat(pedidoId, productoNombre) {
+    pedidoActual = pedidoId;
+    document.getElementById('chatProductoNombre').innerText = productoNombre;
+    document.getElementById('chatModal').style.display = 'flex';
+    
+    // Cargar mensajes
+    await cargarMensajes();
+    
+    // Cargar acuerdo actual
+    await cargarAcuerdo();
+}
+
+async function cargarMensajes() {
+    if (!pedidoActual) return;
+    
+    const container = document.getElementById('chatMensajes');
+    container.innerHTML = '<div style="text-align: center;">Cargando mensajes...</div>';
+    
+    try {
+        const res = await fetch(`/api/pedidos/${pedidoActual}/mensajes`);
+        const mensajes = await res.json();
+        
+        if (!mensajes.length) {
+            container.innerHTML = '<div style="text-align: center; color: #999;">No hay mensajes. Envia uno para empezar!</div>';
+            return;
+        }
+        
+        container.innerHTML = mensajes.map(m => `
+            <div style="margin-bottom: 10px; text-align: ${m.es_mio ? 'right' : 'left'};">
+                <div style="display: inline-block; background: ${m.es_mio ? '#4caf50' : '#ddd'}; color: ${m.es_mio ? 'white' : 'black'}; padding: 8px 12px; border-radius: 12px; max-width: 80%;">
+                    <div style="font-size: 11px; opacity: 0.7;">${m.emisor_nombre}</div>
+                    <div>${m.contenido}</div>
+                    <div style="font-size: 10px; opacity: 0.5;">${new Date(m.fecha).toLocaleTimeString()}</div>
+                </div>
+            </div>
+        `).join('');
+        
+        container.scrollTop = container.scrollHeight;
+        
+        // Marcar como leidos
+        await fetch(`/api/pedidos/${pedidoActual}/mensajes/marcar-leidos`, { method: 'PUT' });
+        
+    } catch (error) {
+        console.error('Error cargando mensajes:', error);
+        container.innerHTML = '<div style="text-align: center; color: red;">Error cargando mensajes</div>';
+    }
+}
+
+async function enviarMensaje() {
+    const input = document.getElementById('chatMensajeInput');
+    const contenido = input.value.trim();
+    
+    if (!contenido || !pedidoActual) return;
+    
+    try {
+        const res = await fetch(`/api/pedidos/${pedidoActual}/mensajes`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ contenido: contenido })
+        });
+        
+        if (res.ok) {
+            input.value = '';
+            await cargarMensajes();
+        } else {
+            const data = await res.json();
+            alert(data.error || 'Error al enviar mensaje');
+        }
+    } catch (error) {
+        console.error('Error:', error);
+        alert('Error de conexion');
+    }
+}
+
+async function cargarAcuerdo() {
+    if (!pedidoActual) return;
+    
+    try {
+        const res = await fetch(`/api/pedidos/${pedidoActual}/acuerdo`);
+        const acuerdo = await res.json();
+        
+        const infoDiv = document.getElementById('chatAcuerdoInfo');
+        const negBotones = document.getElementById('negBotones');
+        
+        if (acuerdo.tiene_acuerdo) {
+            infoDiv.innerHTML = `Precio: Q${acuerdo.precio} | Cantidad: ${acuerdo.cantidad} | Estado: ${acuerdo.estado}`;
+            
+            if (acuerdo.estado === 'pendiente') {
+                negBotones.style.display = 'block';
+            } else {
+                negBotones.style.display = 'none';
+            }
+        } else {
+            infoDiv.innerHTML = 'Sin acuerdo - Envia una propuesta para negociar';
+            negBotones.style.display = 'none';
+        }
+    } catch (error) {
+        console.error('Error cargando acuerdo:', error);
+    }
+}
+
+async function enviarPropuesta() {
+    const precio = document.getElementById('negPrecio').value;
+    const cantidad = document.getElementById('negCantidad').value;
+    
+    if (!precio || !cantidad) {
+        alert('Ingresa precio y cantidad');
+        return;
+    }
+    
+    try {
+        const res = await fetch(`/api/pedidos/${pedidoActual}/acuerdo`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ precio: parseFloat(precio), cantidad: parseFloat(cantidad) })
+        });
+        
+        const data = await res.json();
+        
+        if (res.ok) {
+            alert('Propuesta enviada! Espera a que la otra parte la acepte.');
+            document.getElementById('negPrecio').value = '';
+            document.getElementById('negCantidad').value = '';
+            await cargarAcuerdo();
+            // Enviar mensaje automatico
+            await fetch(`/api/pedidos/${pedidoActual}/mensajes`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ contenido: `Propuesta de acuerdo: Q${precio} por ${cantidad} unidades` })
+            });
+            await cargarMensajes();
+        } else {
+            alert(data.error || 'Error al enviar propuesta');
+        }
+    } catch (error) {
+        console.error('Error:', error);
+        alert('Error de conexion');
+    }
+}
+
+async function aceptarAcuerdo() {
+    if (!confirm('¿Aceptar este acuerdo? El pedido se actualizara con el nuevo precio y cantidad.')) return;
+    
+    try {
+        const res = await fetch(`/api/pedidos/${pedidoActual}/acuerdo/aceptar`, { method: 'PUT' });
+        const data = await res.json();
+        
+        if (res.ok) {
+            alert('Acuerdo aceptado! El pedido ha sido actualizado.');
+            await cargarAcuerdo();
+            await cargarMisPedidos();
+            // Enviar mensaje automatico
+            await fetch(`/api/pedidos/${pedidoActual}/mensajes`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ contenido: 'He aceptado el acuerdo!' })
+            });
+            await cargarMensajes();
+        } else {
+            alert(data.error || 'Error al aceptar acuerdo');
+        }
+    } catch (error) {
+        console.error('Error:', error);
+        alert('Error de conexion');
+    }
+}
+
+async function rechazarAcuerdo() {
+    if (!confirm('¿Rechazar este acuerdo? La otra parte podra hacer una nueva propuesta.')) return;
+    
+    try {
+        const res = await fetch(`/api/pedidos/${pedidoActual}/acuerdo/rechazar`, { method: 'PUT' });
+        const data = await res.json();
+        
+        if (res.ok) {
+            alert('Acuerdo rechazado');
+            await cargarAcuerdo();
+            // Enviar mensaje automatico
+            await fetch(`/api/pedidos/${pedidoActual}/mensajes`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ contenido: 'He rechazado el acuerdo, podemos negociar de nuevo' })
+            });
+            await cargarMensajes();
+        } else {
+            alert(data.error || 'Error al rechazar acuerdo');
+        }
+    } catch (error) {
+        console.error('Error:', error);
+        alert('Error de conexion');
+    }
 }
 
 // Cerrar modal al hacer clic fuera

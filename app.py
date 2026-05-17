@@ -471,19 +471,29 @@ def crear_pedido():
 @app.route('/api/mis-pedidos', methods=['GET'])
 def mis_pedidos():
     if 'usuario_id' not in session:
-        return jsonify({'error': 'Inicia sesión'}), 401
+        return jsonify({'error': 'Inicia sesion'}), 401
     
     conn = get_db_connection()
     cur = conn.cursor()
     
+    # Obtener el rol del usuario desde la sesion (ya viene como texto)
     rol_usuario = session.get('rol')
+    usuario_id = session['usuario_id']
+    
+    print(f"Usuario ID: {usuario_id}, Rol: {rol_usuario}")  # Para debug
     
     if rol_usuario == 'comprador':
+        # Como comprador, quiero ver a los productores
         cur.execute("""
-            SELECT p.idpedido, prod.nombreproducto, pp.cantidad, pp.preciounitario,
-                   p.idestadopedido, ep.descripcionestadopedido,
-                   u.primernombre || ' ' || u.primerapellido as contraparte_nombre,
-                   u.idusuario as contraparte_id
+            SELECT 
+                p.idpedido, 
+                prod.nombreproducto, 
+                pp.cantidad, 
+                pp.preciounitario,
+                p.idestadopedido, 
+                ep.descripcionestadopedido,
+                COALESCE(u.primernombre || ' ' || u.primerapellido, 'Productor desconocido') as contraparte_nombre,
+                u.idusuario as contraparte_id
             FROM pedido p
             JOIN productopedido pp ON p.idpedido = pp.idpedido
             JOIN producto prod ON pp.idproducto = prod.idproducto
@@ -491,13 +501,19 @@ def mis_pedidos():
             JOIN usuario u ON p.idproductor = u.idusuario
             WHERE p.idcliente = %s
             ORDER BY p.fechasolicitud DESC
-        """, (session['usuario_id'],))
-    else:  # productor o admin
+        """, (usuario_id,))
+    else:
+        # Como productor (o admin), quiero ver a los compradores
         cur.execute("""
-            SELECT p.idpedido, prod.nombreproducto, pp.cantidad, pp.preciounitario,
-                   p.idestadopedido, ep.descripcionestadopedido,
-                   u.primernombre || ' ' || u.primerapellido as contraparte_nombre,
-                   u.idusuario as contraparte_id
+            SELECT 
+                p.idpedido, 
+                prod.nombreproducto, 
+                pp.cantidad, 
+                pp.preciounitario,
+                p.idestadopedido, 
+                ep.descripcionestadopedido,
+                COALESCE(u.primernombre || ' ' || u.primerapellido, 'Comprador desconocido') as contraparte_nombre,
+                u.idusuario as contraparte_id
             FROM pedido p
             JOIN productopedido pp ON p.idpedido = pp.idpedido
             JOIN producto prod ON pp.idproducto = prod.idproducto
@@ -505,7 +521,7 @@ def mis_pedidos():
             JOIN usuario u ON p.idcliente = u.idusuario
             WHERE p.idproductor = %s
             ORDER BY p.fechasolicitud DESC
-        """, (session['usuario_id'],))
+        """, (usuario_id,))
     
     pedidos = cur.fetchall()
     cur.close()
@@ -520,9 +536,13 @@ def mis_pedidos():
             'precio': float(p[3]),
             'estado_id': p[4],
             'estado': p[5],
-            'contraparte_nombre': p[6],
+            'contraparte_nombre': p[6] if p[6] else ('Productor' if rol_usuario == 'comprador' else 'Comprador'),
             'contraparte_id': p[7]
         })
+    
+    print(f"Pedidos encontrados: {len(resultado)}")  # Para debug
+    for r in resultado:
+        print(f"  - {r['producto_nombre']} - {r['contraparte_nombre']}")
     
     return jsonify(resultado)
 
@@ -868,6 +888,363 @@ def estadisticas():
         'ventas_completadas': ventas_completadas,
         'total_pedidos': total_pedidos
     })
+
+# ==================== MENSAJES ====================
+
+@app.route('/api/pedidos/<int:pedido_id>/mensajes', methods=['GET'])
+def obtener_mensajes(pedido_id):
+    """Obtener todos los mensajes de un pedido"""
+    if 'usuario_id' not in session:
+        return jsonify({'error': 'Inicia sesion'}), 401
+    
+    conn = get_db_connection()
+    cur = conn.cursor()
+    
+    # Verificar que el usuario sea parte del pedido
+    cur.execute("""
+        SELECT idcliente, idproductor FROM pedido 
+        WHERE idpedido = %s
+    """, (pedido_id,))
+    pedido = cur.fetchone()
+    
+    if not pedido:
+        cur.close()
+        conn.close()
+        return jsonify({'error': 'Pedido no encontrado'}), 404
+    
+    if session['usuario_id'] not in (pedido[0], pedido[1]):
+        cur.close()
+        conn.close()
+        return jsonify({'error': 'No tienes acceso a este pedido'}), 403
+    
+    # Obtener mensajes
+    cur.execute("""
+        SELECT m.idmensaje, m.contenidomsj, m.fechaenviomsj, m.leido,
+               u.primernombre || ' ' || u.primerapellido as emisor_nombre,
+               m.idemisor
+        FROM mensaje m
+        JOIN usuario u ON m.idemisor = u.idusuario
+        WHERE m.idpedido = %s
+        ORDER BY m.fechaenviomsj ASC
+    """, (pedido_id,))
+    
+    mensajes = cur.fetchall()
+    cur.close()
+    conn.close()
+    
+    resultado = []
+    for m in mensajes:
+        resultado.append({
+            'idmensaje': m[0],
+            'contenido': m[1],
+            'fecha': m[2],
+            'leido': m[3],
+            'emisor_nombre': m[4],
+            'emisor_id': m[5],
+            'es_mio': m[5] == session['usuario_id']
+        })
+    
+    return jsonify(resultado)
+
+
+@app.route('/api/pedidos/<int:pedido_id>/mensajes', methods=['POST'])
+def enviar_mensaje(pedido_id):
+    """Enviar un mensaje dentro de un pedido"""
+    if 'usuario_id' not in session:
+        return jsonify({'error': 'Inicia sesion'}), 401
+    
+    data = request.json
+    contenido = data.get('contenido')
+    
+    if not contenido or not contenido.strip():
+        return jsonify({'error': 'El mensaje no puede estar vacio'}), 400
+    
+    conn = get_db_connection()
+    cur = conn.cursor()
+    
+    # Verificar que el usuario sea parte del pedido y obtener el receptor
+    cur.execute("""
+        SELECT idcliente, idproductor FROM pedido 
+        WHERE idpedido = %s
+    """, (pedido_id,))
+    pedido = cur.fetchone()
+    
+    if not pedido:
+        cur.close()
+        conn.close()
+        return jsonify({'error': 'Pedido no encontrado'}), 404
+    
+    # Determinar quien es el receptor
+    if session['usuario_id'] == pedido[0]:  # El comprador es el emisor
+        id_receptor = pedido[1]  # El productor es el receptor
+    elif session['usuario_id'] == pedido[1]:  # El productor es el emisor
+        id_receptor = pedido[0]  # El comprador es el receptor
+    else:
+        cur.close()
+        conn.close()
+        return jsonify({'error': 'No eres parte de este pedido'}), 403
+    
+    # Insertar mensaje
+    cur.execute("""
+        INSERT INTO mensaje (idpedido, idemisor, idreceptor, contenidomsj)
+        VALUES (%s, %s, %s, %s)
+        RETURNING idmensaje
+    """, (pedido_id, session['usuario_id'], id_receptor, contenido.strip()))
+    
+    nuevo_id = cur.fetchone()[0]
+    conn.commit()
+    cur.close()
+    conn.close()
+    
+    return jsonify({
+        'mensaje': 'Mensaje enviado',
+        'idmensaje': nuevo_id
+    }), 201
+
+
+@app.route('/api/pedidos/<int:pedido_id>/mensajes/marcar-leidos', methods=['PUT'])
+def marcar_mensajes_leidos(pedido_id):
+    """Marcar todos los mensajes como leidos"""
+    if 'usuario_id' not in session:
+        return jsonify({'error': 'Inicia sesion'}), 401
+    
+    conn = get_db_connection()
+    cur = conn.cursor()
+    
+    cur.execute("""
+        UPDATE mensaje 
+        SET leido = true 
+        WHERE idpedido = %s AND idreceptor = %s AND leido = false
+    """, (pedido_id, session['usuario_id']))
+    
+    conn.commit()
+    cur.close()
+    conn.close()
+    
+    return jsonify({'mensaje': 'Mensajes marcados como leidos'})
+
+
+# ==================== ACUERDOS ====================
+
+@app.route('/api/pedidos/<int:pedido_id>/acuerdo', methods=['GET'])
+def obtener_acuerdo(pedido_id):
+    """Obtener el acuerdo actual de un pedido"""
+    if 'usuario_id' not in session:
+        return jsonify({'error': 'Inicia sesion'}), 401
+    
+    conn = get_db_connection()
+    cur = conn.cursor()
+    
+    # Verificar acceso
+    cur.execute("""
+        SELECT idcliente, idproductor FROM pedido WHERE idpedido = %s
+    """, (pedido_id,))
+    pedido = cur.fetchone()
+    
+    if not pedido or session['usuario_id'] not in (pedido[0], pedido[1]):
+        cur.close()
+        conn.close()
+        return jsonify({'error': 'No tienes acceso'}), 403
+    
+    # Obtener acuerdo activo con nombre del creador
+    cur.execute("""
+        SELECT a.idacuerdo, a.precioacordado, a.cantidadacordada, a.fechaacordada, a.estadoacuerdo,
+               u.primernombre || ' ' || u.primerapellido as creador_nombre,
+               a.idcreador
+        FROM acuerdo a
+        LEFT JOIN usuario u ON a.idcreador = u.idusuario
+        WHERE a.idpedido = %s AND a.vigenciaacuerdo = true
+        ORDER BY a.fechaacordada DESC
+        LIMIT 1
+    """, (pedido_id,))
+    
+    acuerdo = cur.fetchone()
+    cur.close()
+    conn.close()
+    
+    if not acuerdo:
+        return jsonify({
+            'tiene_acuerdo': False,
+            'mensaje': 'Aun no hay acuerdo para este pedido'
+        })
+    
+    return jsonify({
+        'tiene_acuerdo': True,
+        'idacuerdo': acuerdo[0],
+        'precio': float(acuerdo[1]),
+        'cantidad': float(acuerdo[2]),
+        'fecha': acuerdo[3],
+        'estado': acuerdo[4],
+        'creador_nombre': acuerdo[5] if acuerdo[5] else 'Alguien',
+        'es_creador': session['usuario_id'] == acuerdo[6]
+    })
+
+
+@app.route('/api/pedidos/<int:pedido_id>/acuerdo', methods=['POST'])
+def crear_o_actualizar_acuerdo(pedido_id):
+    """Crear o actualizar una negociacion de precio/cantidad"""
+    if 'usuario_id' not in session:
+        return jsonify({'error': 'Inicia sesion'}), 401
+    
+    data = request.json
+    precio = data.get('precio')
+    cantidad = data.get('cantidad')
+    
+    if not precio or not cantidad:
+        return jsonify({'error': 'Faltan precio o cantidad'}), 400
+    
+    if precio <= 0 or cantidad <= 0:
+        return jsonify({'error': 'Precio y cantidad deben ser mayores a 0'}), 400
+    
+    conn = get_db_connection()
+    cur = conn.cursor()
+    
+    # Verificar que el usuario sea parte del pedido
+    cur.execute("""
+        SELECT idcliente, idproductor, idestadopedido FROM pedido WHERE idpedido = %s
+    """, (pedido_id,))
+    pedido = cur.fetchone()
+    
+    if not pedido or session['usuario_id'] not in (pedido[0], pedido[1]):
+        cur.close()
+        conn.close()
+        return jsonify({'error': 'No tienes acceso'}), 403
+    
+    # Verificar que el pedido no este completado o cancelado
+    cur.execute("SELECT descripcionestadopedido FROM estadopedido WHERE idestadopedido = %s", (pedido[2],))
+    estado_actual = cur.fetchone()
+    if estado_actual and estado_actual[0] in ('completado', 'cancelado', 'rechazado'):
+        cur.close()
+        conn.close()
+        return jsonify({'error': f'No se puede negociar, el pedido esta {estado_actual[0]}'}), 400
+    
+    # Desactivar acuerdos anteriores
+    cur.execute("""
+        UPDATE acuerdo SET vigenciaacuerdo = false 
+        WHERE idpedido = %s AND vigenciaacuerdo = true
+    """, (pedido_id,))
+    
+    # Crear nuevo acuerdo con idcreador
+    cur.execute("""
+        INSERT INTO acuerdo (idpedido, precioacordado, cantidadacordada, estadoacuerdo, idcreador)
+        VALUES (%s, %s, %s, 'pendiente', %s)
+        RETURNING idacuerdo
+    """, (pedido_id, precio, cantidad, session['usuario_id']))
+    
+    nuevo_id = cur.fetchone()[0]
+    conn.commit()
+    cur.close()
+    conn.close()
+    
+    return jsonify({
+        'mensaje': 'Propuesta de acuerdo enviada',
+        'idacuerdo': nuevo_id,
+        'precio': precio,
+        'cantidad': cantidad
+    }), 201
+
+@app.route('/api/pedidos/<int:pedido_id>/acuerdo/aceptar', methods=['PUT'])
+def aceptar_acuerdo(pedido_id):
+    """Aceptar el acuerdo propuesto (lo acepta la otra parte)"""
+    if 'usuario_id' not in session:
+        return jsonify({'error': 'Inicia sesion'}), 401
+    
+    conn = get_db_connection()
+    cur = conn.cursor()
+    
+    # Obtener el acuerdo activo con el idcreador
+    cur.execute("""
+        SELECT a.idacuerdo, a.precioacordado, a.cantidadacordada, 
+               p.idcliente, p.idproductor, a.idcreador
+        FROM acuerdo a
+        JOIN pedido p ON a.idpedido = p.idpedido
+        WHERE a.idpedido = %s AND a.vigenciaacuerdo = true AND a.estadoacuerdo = 'pendiente'
+        ORDER BY a.fechaacordada DESC
+        LIMIT 1
+    """, (pedido_id,))
+    
+    acuerdo = cur.fetchone()
+    
+    if not acuerdo:
+        cur.close()
+        conn.close()
+        return jsonify({'error': 'No hay acuerdo pendiente'}), 404
+    
+    id_acuerdo = acuerdo[0]
+    precio_acordado = acuerdo[1]
+    cantidad_acordada = acuerdo[2]
+    id_cliente = acuerdo[3]
+    id_productor = acuerdo[4]
+    id_creador = acuerdo[5]
+    
+    usuario_id = session['usuario_id']
+    
+    # Verificar que el usuario sea parte del pedido
+    if usuario_id not in (id_cliente, id_productor):
+        cur.close()
+        conn.close()
+        return jsonify({'error': 'No eres parte de este pedido'}), 403
+    
+    # Verificar que el usuario NO sea el creador de la propuesta
+    if usuario_id == id_creador:
+        cur.close()
+        conn.close()
+        return jsonify({'error': 'No puedes aceptar tu propia propuesta'}), 400
+    
+    # Actualizar acuerdo a aceptado
+    cur.execute("""
+        UPDATE acuerdo SET estadoacuerdo = 'aceptado' 
+        WHERE idacuerdo = %s
+    """, (id_acuerdo,))
+    
+    # Actualizar el productopedido con los valores acordados
+    cur.execute("""
+        UPDATE productopedido 
+        SET cantidad = %s, preciounitario = %s 
+        WHERE idpedido = %s
+    """, (cantidad_acordada, precio_acordado, pedido_id))
+    
+    conn.commit()
+    cur.close()
+    conn.close()
+    
+    return jsonify({
+        'mensaje': 'Acuerdo aceptado',
+        'precio': float(precio_acordado),
+        'cantidad': float(cantidad_acordada)
+    })
+
+@app.route('/api/pedidos/<int:pedido_id>/acuerdo/rechazar', methods=['PUT'])
+def rechazar_acuerdo(pedido_id):
+    """Rechazar el acuerdo propuesto"""
+    if 'usuario_id' not in session:
+        return jsonify({'error': 'Inicia sesion'}), 401
+    
+    conn = get_db_connection()
+    cur = conn.cursor()
+    
+    # Obtener el acuerdo activo
+    cur.execute("""
+        SELECT a.idacuerdo FROM acuerdo a
+        WHERE a.idpedido = %s AND a.vigenciaacuerdo = true AND a.estadoacuerdo = 'pendiente'
+        ORDER BY a.fechaacordada DESC
+        LIMIT 1
+    """, (pedido_id,))
+    
+    acuerdo = cur.fetchone()
+    
+    if not acuerdo:
+        cur.close()
+        conn.close()
+        return jsonify({'error': 'No hay acuerdo pendiente'}), 404
+    
+    cur.execute("UPDATE acuerdo SET estadoacuerdo = 'rechazado' WHERE idacuerdo = %s", (acuerdo[0],))
+    conn.commit()
+    cur.close()
+    conn.close()
+    
+    return jsonify({'mensaje': 'Acuerdo rechazado'})
+
 # ==================== INICIO ====================
 
 if __name__ == '__main__':
