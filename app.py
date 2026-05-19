@@ -11,11 +11,11 @@ CORS(app)
 
 def get_db_connection():
     return psycopg2.connect(
-        host='localhost',
-        database='comunidad_agro',
-        user='postgres',
-        password='maryori123',  
-        port=5432
+        host=os.environ.get('DB_HOST', 'localhost'),
+        database=os.environ.get('DB_NAME', 'comunidad_agro'),
+        user=os.environ.get('DB_USER', 'postgres'),
+        password=os.environ.get('DB_PASSWORD', 'maryori123'),
+        port=os.environ.get('DB_PORT', 5432)
     )
 
 # ==================== DTOs ====================
@@ -1246,6 +1246,5 @@ def rechazar_acuerdo(pedido_id):
     return jsonify({'mensaje': 'Acuerdo rechazado'})
 
 # ==================== INICIO ====================
-
 if __name__ == '__main__':
-    app.run(debug=True, port=5000)
+    app.run(debug=True, host='0.0.0.0', port=5000)

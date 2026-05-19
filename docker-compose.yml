@@ -1,0 +1,43 @@
+services:
+  # Contenedor de la base de datos PostgreSQL
+  db:
+    image: postgres:15
+    container_name: agro_postgres
+    restart: always
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: maryori123
+      POSTGRES_DB: comunidad_agro
+    ports:
+      - "5433:5432"  # Puerto 5433 en Windows, 5432 dentro del contenedor
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./database.sql:/docker-entrypoint-initdb.d/1.sql  # Script de inicializacion
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # Contenedor de la aplicacion Flask
+  web:
+    build: .
+    container_name: agro_flask
+    restart: always
+    ports:
+      - "5001:5000"
+    environment:
+      - DB_HOST=db
+      - DB_PORT=5432
+      - DB_USER=postgres
+      - DB_PASSWORD=maryori123
+      - DB_NAME=comunidad_agro
+    depends_on:
+      db:
+        condition: service_healthy
+    volumes:
+      - .:/app  # Sincroniza archivos locales con el contenedor (modo desarrollo)
+
+# Volumen persistente para la base de datos
+volumes:
+  postgres_data:
