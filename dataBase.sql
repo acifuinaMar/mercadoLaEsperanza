@@ -392,5 +392,3 @@ ALTER TABLE ONLY public.usuario
 -- Llaves foráneas de 'producto'
 ALTER TABLE ONLY public.producto
     ADD CONSTRAINT producto_idunidadmedida_fkey FOREIGN KEY (idunidadmedida) REFERENCES public.unidadmedida(idunidad);
-ALTER TABLE ONLY public.producto
-    ADD CONSTRAINT producto_pkey PRIMARY KEY (idproducto);
