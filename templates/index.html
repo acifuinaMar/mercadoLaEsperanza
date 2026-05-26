@@ -9,7 +9,6 @@
 </head>
 <body>
     <div class="app-container">
-        <!-- Header con perfil -->
         <header class="header">
             <div class="logo">
                 <h1>Mercado La Esperanza</h1>
@@ -26,7 +25,6 @@
             </div>
         </header>
 
-        <!-- Pestañas principales -->
         <div class="tabs">
             <button class="tab-btn active" onclick="cambiarTab('productos')">Productos</button>
             <button class="tab-btn" id="pedidosTab" onclick="cambiarTab('pedidos')" style="display:none;">Mis Pedidos</button>
@@ -34,7 +32,6 @@
             <button id="nuevoProductoBtn" class="tab-btn" style="display: none;" onclick="mostrarNuevoProducto()">Nuevo Producto</button>
         </div>
 
-        <!-- Contenido dinámico -->
         <div id="productosTab" class="tab-content active">
             <div class="search-bar">
                 <input type="text" id="searchProducto" placeholder="Buscar producto..." onkeyup="filtrarProductos()">
@@ -55,7 +52,6 @@
             </div>
         </div>
 
-        <!-- Modal Login -->
         <div id="loginModal" class="modal">
             <div class="modal-content">
                 <span class="close" onclick="cerrarModal('loginModal')">&times;</span>
@@ -66,7 +62,6 @@
             </div>
         </div>
 
-        <!-- Registro -->
         <div id="registroModal" class="modal">
             <div class="modal-content">
                 <span class="close" onclick="cerrarModal('registroModal')">&times;</span>
@@ -89,7 +84,7 @@
                 <button class="btn btn-primary" onclick="registrarse()">Registrarse</button>
             </div>
         </div>
-        <!-- Modal Nuevo Producto -->
+
         <div id="productoModal" class="modal">
             <div class="modal-content">
                 <span class="close" onclick="cerrarModal('productoModal')">&times;</span>
@@ -103,7 +98,19 @@
             </div>
         </div>
 
-        <!-- Modal de Chat / Negociacion -->
+        <div id="editarProductoModal" class="modal">
+            <div class="modal-content">
+                <span class="close" onclick="cerrarModal('editarProductoModal')">&times;</span>
+                <h2>Editar Producto</h2>
+                <input type="hidden" id="editId">
+                <input type="text" id="editNombre" placeholder="Nombre del producto">
+                <textarea id="editDesc" placeholder="Descripción" rows="3"></textarea>
+                <input type="number" id="editPrecio" placeholder="Precio (Q)" step="0.01">
+                <input type="number" id="editCantidad" placeholder="Cantidad disponible">
+                <button class="btn btn-primary" onclick="guardarEdicion()">Guardar Cambios</button>
+            </div>
+        </div>
+
         <div id="chatModal" class="modal">
             <div class="modal-content" style="max-width: 600px;">
                 <span class="close" onclick="cerrarModal('chatModal')">&times;</span>

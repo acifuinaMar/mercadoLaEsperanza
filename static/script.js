@@ -2,7 +2,7 @@ let usuarioActual = null;
 let productosGlobal = [];
 
 // Inicializar
-document.addEventListener('DOMContentivoLoaded', () => {
+document.addEventListener('DOMContentLoaded', () => {
     verificarSesion();
     cargarProductos();
     
@@ -95,7 +95,7 @@ function mostrarProductos(productos) {
     }
     
     container.innerHTML = productos.map(p => {
-        // Valores seguros por si vienen nulos
+        
         const nombre = p.nombreproducto || p.nombre || 'Producto sin nombre';
         const precio = p.precio ? parseFloat(p.precio).toFixed(2) : '0.00';
         const cantidad = p.cantidad_disponible || p.cantidaddisponible || 0;
@@ -118,6 +118,7 @@ function mostrarProductos(productos) {
             botonesHtml = `
                 <div style="margin-top: 10px;">
                     <button class="btn btn-small" onclick="editarProducto(${id})">Editar</button>
+                    <button class="btn btn-danger btn-small" onclick="eliminarProducto(${id})">Eliminar</button>
                 </div>
             `;
         }
@@ -177,6 +178,69 @@ async function hacerPedido(productoId) {
     } catch (error) {
         console.error('Error:', error);
         alert('Error al hacer pedido');
+    }
+}
+
+async function eliminarProducto(id) {
+    if (!confirm("¿Estás seguro de que deseas eliminar este producto?")) return;
+
+    try {
+        const response = await fetch(`/api/productos/${id}`, {
+            method: 'DELETE'
+        });
+        
+        const data = await response.json();
+        if (response.ok) {
+            alert(data.mensaje);
+            // Recargamos los productos para que desaparezca de la pantalla
+            cargarProductos();
+        } else {
+            alert("Error: " + data.error);
+        }
+    } catch (error) {
+        console.error("Error al eliminar:", error);
+        alert("Error de conexión al eliminar.");
+    }
+}
+// Función para abrir el modal de edición
+function editarProducto(id) {
+    // Obtenemos el modal
+    const modal = document.getElementById('editarProductoModal');
+    
+    document.getElementById('editId').value = id;
+    
+    // Mostramos el modal
+    modal.style.display = 'flex';
+}
+
+// Función para guardar los cambios
+async function guardarEdicion() {
+    const id = document.getElementById('editId').value;
+    const data = {
+        nombre: document.getElementById('editNombre').value,
+        descripcion: document.getElementById('editDesc').value,
+        precio: parseFloat(document.getElementById('editPrecio').value),
+        cantidad: parseFloat(document.getElementById('editCantidad').value)
+    };
+
+    try {
+        const res = await fetch(`/api/productos/${id}`, {
+            method: 'PUT',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(data)
+        });
+        
+        const result = await res.json();
+        if (res.ok) {
+            alert("Producto actualizado exitosamente");
+            cerrarModal('editarProductoModal');
+            cargarProductos();
+        } else {
+            alert("Error: " + result.error);
+        }
+    } catch (error) {
+        console.error("Error al actualizar:", error);
+        alert("No se pudo conectar con el servidor.");
     }
 }
 
@@ -558,10 +622,11 @@ async function abrirChat(pedidoId, productoNombre) {
     document.getElementById('chatProductoNombre').innerText = productoNombre;
     document.getElementById('chatModal').style.display = 'flex';
     
-    // Cargar mensajes
+    // 1. Cargar mensajes y marcarlos como leídos
     await cargarMensajes();
+    await fetch(`/api/pedidos/${pedidoId}/mensajes/marcar-leidos`, { method: 'PUT' });
     
-    // Cargar acuerdo actual
+    // 2. Cargar el estado del acuerdo
     await cargarAcuerdo();
 }
 
@@ -635,22 +700,22 @@ async function cargarAcuerdo() {
         const acuerdo = await res.json();
         
         const infoDiv = document.getElementById('chatAcuerdoInfo');
-        const negBotones = document.getElementById('negBotones');
+        const negBotones = document.getElementById('negBotones'); // Tus botones Aceptar/Rechazar
         
         if (acuerdo.tiene_acuerdo) {
             infoDiv.innerHTML = `Precio: Q${acuerdo.precio} | Cantidad: ${acuerdo.cantidad} | Estado: ${acuerdo.estado}`;
             
-            if (acuerdo.estado === 'pendiente') {
+            if (acuerdo.estado === 'pendiente' && !acuerdo.es_creador) {
                 negBotones.style.display = 'block';
             } else {
                 negBotones.style.display = 'none';
             }
         } else {
-            infoDiv.innerHTML = 'Sin acuerdo - Envia una propuesta para negociar';
+            infoDiv.innerHTML = 'Sin acuerdo - Envia una propuesta';
             negBotones.style.display = 'none';
         }
     } catch (error) {
-        console.error('Error cargando acuerdo:', error);
+        console.error('Error:', error);
     }
 }
 
@@ -746,7 +811,30 @@ async function rechazarAcuerdo() {
     }
 }
 
-// Cerrar modal al hacer clic fuera
+async function confirmarEntrega(pedidoId) {
+    if (!confirm('¿Confirmas que la entrega se realizó correctamente?')) return;
+
+    try {
+        // Asegúrate de que los slashes (/) coincidan exactamente
+        const response = await fetch(`/api/pedidos/${pedidoId}/confirmar-entrega`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' }
+        });
+
+        if (response.ok) {
+            alert('Confirmación enviada exitosamente.');
+            location.reload(); 
+        } else {
+            const errorText = await response.text();
+            console.error('Error del servidor:', errorText);
+            alert('Error al confirmar. Revisa la consola (F12).');
+        }
+    } catch (error) {
+        console.error('Error:', error);
+        alert('Error de conexión.');
+    }
+}
+
 window.onclick = function(event) {
     if (event.target.classList && event.target.classList.contains('modal')) {
         event.target.style.display = 'none';

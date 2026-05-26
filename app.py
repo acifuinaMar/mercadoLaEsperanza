@@ -287,116 +287,80 @@ def listar_productos():
     productos = cur.fetchall()
     cur.close()
     conn.close()
-    
-    resultado = []
-    for p in productos:
-        resultado.append({
-            'idproducto': p[0],
-            'nombreproducto': p[1],
-            'descripcion': p[2],
-            'precio': float(p[3]),
-            'cantidad_disponible': float(p[4]) if p[4] else 0,
-            'unidad': p[5],
-            'productor_nombre': p[6],
-            'idproductor': p[7]
-        })
-    
-    return jsonify(resultado)
+    return jsonify([{'idproducto': p[0], 'nombreproducto': p[1], 'descripcion': p[2], 'precio': float(p[3]), 'cantidad_disponible': float(p[4]) if p[4] else 0, 'unidad': p[5], 'productor_nombre': p[6], 'idproductor': p[7]} for p in productos])
 
 @app.route('/api/mis-productos', methods=['GET'])
 def mis_productos():
-    if 'usuario_id' not in session:
+    if 'usuario_id' not in session or session.get('rol') != 'productor':
         return jsonify({'error': 'No autorizado'}), 401
-    
-    if session.get('rol') != 'productor':
-        return jsonify({'error': 'Solo productores'}), 403
-    
     conn = get_db_connection()
     cur = conn.cursor()
-    cur.execute("SELECT * FROM producto WHERE idproductor = %s AND activo = true", (session['usuario_id'],))
+    
+    cur.execute("SELECT idproducto, nombreproducto, descripcion, precio, cantidaddisponible FROM producto WHERE idproductor = %s AND activo = true", (session['usuario_id'],))
     productos = cur.fetchall()
     cur.close()
     conn.close()
-    
-    resultado = []
-    for p in productos:
-        resultado.append({
-            'idproducto': p[0],
-            'nombreproducto': p[1],
-            'descripcion': p[2],
-            'precio': float(p[3]),
-            'idunidadmedida': p[4],
-            'idproductor': p[5],
-            'activo': p[6],
-            'fecharegistro': p[7],
-            'cantidaddisponible': float(p[8]) if len(p) > 8 and p[8] else 0
-        })
-    
-    return jsonify(resultado)
+    return jsonify([{'idproducto': p[0], 'nombreproducto': p[1], 'descripcion': p[2], 'precio': float(p[3]), 'cantidaddisponible': float(p[4])} for p in productos])
 
 @app.route('/api/productos', methods=['POST'])
 def crear_producto():
-    if 'usuario_id' not in session:
-        return jsonify({'error': 'Debes iniciar sesión'}), 401
-    
-    # Verificar que sea productor usando el rol guardado en sesión
-    if session.get('rol') != 'productor':
-        return jsonify({'error': 'Solo los productores pueden crear productos'}), 403
-    
+    if 'usuario_id' not in session or session.get('rol') != 'productor':
+        return jsonify({'error': 'No autorizado'}), 403
     try:
-        producto = ProductoDTO.from_json(request.json)
-        print(f"Nuevo producto: {producto.__dict__}")
-        
-        if not producto.validar():
-            return jsonify({'error': 'Faltan campos: nombre, precio, cantidad'}), 400
-        
+        data = request.json
         conn = get_db_connection()
         cur = conn.cursor()
-        
-        cur.execute("SELECT idunidad FROM unidadmedida WHERE abreviatura = %s OR nombreunidad = %s", 
-                    (producto.unidad, producto.unidad))
-        unidad = cur.fetchone()
-        unidad_id = unidad[0] if unidad else 1
-        
-        cur.execute("""
-            INSERT INTO producto (nombreproducto, descripcion, precio, idunidadmedida, idproductor, cantidaddisponible)
-            VALUES (%s, %s, %s, %s, %s, %s)
-            RETURNING idproducto
-        """, (producto.nombre, producto.descripcion, producto.precio, 
-              unidad_id, session['usuario_id'], producto.cantidad))
-        
+        cur.execute("INSERT INTO producto (nombreproducto, descripcion, precio, idunidadmedida, idproductor, cantidaddisponible, activo) VALUES (%s, %s, %s, %s, %s, %s, true) RETURNING idproducto", 
+                    (data['nombre'], data.get('descripcion', ''), data['precio'], 1, session['usuario_id'], data['cantidad']))
         nuevo_id = cur.fetchone()[0]
         conn.commit()
         cur.close()
         conn.close()
-        
-        return jsonify({'mensaje': 'Producto registrado', 'id': nuevo_id}), 201
-        
+        return jsonify({'id': nuevo_id}), 201
     except Exception as e:
-        if 'conn' in locals():
-            conn.rollback()
-        print(f"Error: {e}")
         return jsonify({'error': str(e)}), 500
-    
-@app.route('/api/productos/<int:producto_id>', methods=['PUT'])
-def actualizar_producto(producto_id):
-    if 'usuario_id' not in session or session['rol'] != 1:
+
+@app.route('/api/productos/<int:producto_id>', methods=['DELETE'])
+def eliminar_producto(producto_id):
+    if 'usuario_id' not in session or session.get('rol') != 'productor':
         return jsonify({'error': 'No autorizado'}), 403
     
-    data = request.json
     conn = get_db_connection()
     cur = conn.cursor()
-    cur.execute("""
-        UPDATE producto 
-        SET precio = %s, cantidaddisponible = %s, nombreproducto = %s, descripcion = %s
-        WHERE idproducto = %s AND idproductor = %s
-    """, (data['precio'], data['cantidad'], data['nombre'], data.get('descripcion', ''), 
-          producto_id, session['usuario_id']))
-    conn.commit()
-    cur.close()
-    conn.close()
-    return jsonify({'mensaje': 'Producto actualizado'})
+    try:
+        # Intentamos eliminar el registro
+        cur.execute("DELETE FROM producto WHERE idproducto = %s AND idproductor = %s", 
+                    (producto_id, session['usuario_id']))
+        conn.commit()
+        return jsonify({'mensaje': 'Producto eliminado correctamente'})
+    except Exception as e:
+        conn.rollback()
+        return jsonify({'error': str(e)}), 500
+    finally:
+        cur.close()
+        conn.close()
 
+@app.route('/api/productos/<int:id>', methods=['PUT'])
+def actualizar_producto(id):
+    datos = request.get_json()
+    try:
+        conn = get_db_connection() # Asegúrate de que esta función sea la que usas siempre
+        cur = conn.cursor()
+        cur.execute("""
+            UPDATE productos 
+            SET nombreproducto = %s, 
+                descripcion = %s, 
+                precio = %s, 
+                cantidad_disponible = %s 
+            WHERE idproducto = %s
+        """, (datos['nombre'], datos['descripcion'], datos['precio'], datos['cantidad'], id))
+        conn.commit()
+        cur.close()
+        conn.close()
+        return jsonify({"mensaje": "Producto actualizado"}), 200
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+    
 # ------------------ PEDIDOS ------------------
 
 @app.route('/api/pedidos', methods=['POST'])
@@ -476,7 +440,7 @@ def mis_pedidos():
     conn = get_db_connection()
     cur = conn.cursor()
     
-    # Obtener el rol del usuario desde la sesion (ya viene como texto)
+    # Obtener el rol del usuario desde la sesion
     rol_usuario = session.get('rol')
     usuario_id = session['usuario_id']
     
@@ -635,10 +599,12 @@ def confirmar_entrega(pedido_id):
     entrega = cur.fetchone()
     
     if not entrega:
-        # Crear registro de entrega
+        # Debes incluir idpuntoentrega. 
+        # Si no tienes un punto específico, usa un valor por defecto o 
+        # asegúrate de obtenerlo del frontend.
         cur.execute("""
-            INSERT INTO entrega (idpedido, idestadoentrega)
-            VALUES (%s, 1)
+            INSERT INTO entrega (idpedido, idestadoentrega, idpuntoentrega)
+            VALUES (%s, 1, 1)  -- <-- Cambia el segundo '1' por el ID correcto del punto de entrega
             RETURNING identrega
         """, (pedido_id,))
         identrega = cur.fetchone()[0]
@@ -888,40 +854,26 @@ def estadisticas():
         'ventas_completadas': ventas_completadas,
         'total_pedidos': total_pedidos
     })
-
-# ==================== MENSAJES ====================
+# ==================== MENSAJES (SISTEMA DE CHAT) ====================
 
 @app.route('/api/pedidos/<int:pedido_id>/mensajes', methods=['GET'])
 def obtener_mensajes(pedido_id):
-    """Obtener todos los mensajes de un pedido"""
     if 'usuario_id' not in session:
         return jsonify({'error': 'Inicia sesion'}), 401
     
     conn = get_db_connection()
     cur = conn.cursor()
     
-    # Verificar que el usuario sea parte del pedido
-    cur.execute("""
-        SELECT idcliente, idproductor FROM pedido 
-        WHERE idpedido = %s
-    """, (pedido_id,))
+    # Validar que el usuario participe en el pedido
+    cur.execute("SELECT idcliente, idproductor FROM pedido WHERE idpedido = %s", (pedido_id,))
     pedido = cur.fetchone()
-    
-    if not pedido:
-        cur.close()
-        conn.close()
-        return jsonify({'error': 'Pedido no encontrado'}), 404
-    
-    if session['usuario_id'] not in (pedido[0], pedido[1]):
-        cur.close()
-        conn.close()
-        return jsonify({'error': 'No tienes acceso a este pedido'}), 403
+    if not pedido or session['usuario_id'] not in (pedido[0], pedido[1]):
+        cur.close(); conn.close()
+        return jsonify({'error': 'No tienes acceso'}), 403
     
     # Obtener mensajes
     cur.execute("""
-        SELECT m.idmensaje, m.contenidomsj, m.fechaenviomsj, m.leido,
-               u.primernombre || ' ' || u.primerapellido as emisor_nombre,
-               m.idemisor
+        SELECT m.contenidomsj, m.fechaenviomsj, u.primernombre, m.idemisor
         FROM mensaje m
         JOIN usuario u ON m.idemisor = u.idusuario
         WHERE m.idpedido = %s
@@ -929,156 +881,103 @@ def obtener_mensajes(pedido_id):
     """, (pedido_id,))
     
     mensajes = cur.fetchall()
-    cur.close()
-    conn.close()
+    cur.close(); conn.close()
     
-    resultado = []
-    for m in mensajes:
-        resultado.append({
-            'idmensaje': m[0],
-            'contenido': m[1],
-            'fecha': m[2],
-            'leido': m[3],
-            'emisor_nombre': m[4],
-            'emisor_id': m[5],
-            'es_mio': m[5] == session['usuario_id']
-        })
-    
-    return jsonify(resultado)
+    return jsonify([{
+        'contenido': m[0],
+        'fecha': m[1],
+        'emisor': m[2],
+        'es_mio': (m[3] == session['usuario_id'])
+    } for m in mensajes])
 
 
 @app.route('/api/pedidos/<int:pedido_id>/mensajes', methods=['POST'])
 def enviar_mensaje(pedido_id):
-    """Enviar un mensaje dentro de un pedido"""
     if 'usuario_id' not in session:
         return jsonify({'error': 'Inicia sesion'}), 401
     
     data = request.json
-    contenido = data.get('contenido')
+    contenido = data.get('contenido', '').strip()
     
-    if not contenido or not contenido.strip():
-        return jsonify({'error': 'El mensaje no puede estar vacio'}), 400
+    if not contenido:
+        return jsonify({'error': 'Mensaje vacío'}), 400
     
     conn = get_db_connection()
     cur = conn.cursor()
     
-    # Verificar que el usuario sea parte del pedido y obtener el receptor
-    cur.execute("""
-        SELECT idcliente, idproductor FROM pedido 
-        WHERE idpedido = %s
-    """, (pedido_id,))
+    # Identificar quién es el otro usuario para el registro
+    cur.execute("SELECT idcliente, idproductor FROM pedido WHERE idpedido = %s", (pedido_id,))
     pedido = cur.fetchone()
-    
-    if not pedido:
-        cur.close()
-        conn.close()
-        return jsonify({'error': 'Pedido no encontrado'}), 404
-    
-    # Determinar quien es el receptor
-    if session['usuario_id'] == pedido[0]:  # El comprador es el emisor
-        id_receptor = pedido[1]  # El productor es el receptor
-    elif session['usuario_id'] == pedido[1]:  # El productor es el emisor
-        id_receptor = pedido[0]  # El comprador es el receptor
-    else:
-        cur.close()
-        conn.close()
-        return jsonify({'error': 'No eres parte de este pedido'}), 403
+    id_receptor = pedido[1] if session['usuario_id'] == pedido[0] else pedido[0]
     
     # Insertar mensaje
     cur.execute("""
         INSERT INTO mensaje (idpedido, idemisor, idreceptor, contenidomsj)
         VALUES (%s, %s, %s, %s)
-        RETURNING idmensaje
-    """, (pedido_id, session['usuario_id'], id_receptor, contenido.strip()))
+    """, (pedido_id, session['usuario_id'], id_receptor, contenido))
     
-    nuevo_id = cur.fetchone()[0]
     conn.commit()
-    cur.close()
-    conn.close()
+    cur.close(); conn.close()
     
-    return jsonify({
-        'mensaje': 'Mensaje enviado',
-        'idmensaje': nuevo_id
-    }), 201
+    return jsonify({'mensaje': 'Enviado'}), 201
 
 
 @app.route('/api/pedidos/<int:pedido_id>/mensajes/marcar-leidos', methods=['PUT'])
 def marcar_mensajes_leidos(pedido_id):
-    """Marcar todos los mensajes como leidos"""
     if 'usuario_id' not in session:
         return jsonify({'error': 'Inicia sesion'}), 401
     
     conn = get_db_connection()
     cur = conn.cursor()
-    
     cur.execute("""
-        UPDATE mensaje 
-        SET leido = true 
-        WHERE idpedido = %s AND idreceptor = %s AND leido = false
+        UPDATE mensaje SET leido = true 
+        WHERE idpedido = %s AND idreceptor = %s
     """, (pedido_id, session['usuario_id']))
     
     conn.commit()
-    cur.close()
-    conn.close()
-    
-    return jsonify({'mensaje': 'Mensajes marcados como leidos'})
-
+    cur.close(); conn.close()
+    return jsonify({'mensaje': 'Leídos'})
 
 # ==================== ACUERDOS ====================
 
 @app.route('/api/pedidos/<int:pedido_id>/acuerdo', methods=['GET'])
 def obtener_acuerdo(pedido_id):
-    """Obtener el acuerdo actual de un pedido"""
+    """Obtener el acuerdo actual y verificar si el usuario actual es el creador"""
     if 'usuario_id' not in session:
         return jsonify({'error': 'Inicia sesion'}), 401
     
     conn = get_db_connection()
     cur = conn.cursor()
     
-    # Verificar acceso
-    cur.execute("""
-        SELECT idcliente, idproductor FROM pedido WHERE idpedido = %s
-    """, (pedido_id,))
+    # 1. Verificar que el usuario sea parte del pedido
+    cur.execute("SELECT idcliente, idproductor FROM pedido WHERE idpedido = %s", (pedido_id,))
     pedido = cur.fetchone()
     
     if not pedido or session['usuario_id'] not in (pedido[0], pedido[1]):
-        cur.close()
-        conn.close()
-        return jsonify({'error': 'No tienes acceso'}), 403
+        cur.close(); conn.close()
+        return jsonify({'error': 'No tienes acceso a este pedido'}), 403
     
-    # Obtener acuerdo activo con nombre del creador
+    # 2. Obtener el acuerdo activo
     cur.execute("""
-        SELECT a.idacuerdo, a.precioacordado, a.cantidadacordada, a.fechaacordada, a.estadoacuerdo,
-               u.primernombre || ' ' || u.primerapellido as creador_nombre,
-               a.idcreador
-        FROM acuerdo a
-        LEFT JOIN usuario u ON a.idcreador = u.idusuario
+        SELECT a.idacuerdo, a.precioacordado, a.cantidadacordada, a.estadoacuerdo, a.idcreador
+        FROM acuerdo a 
         WHERE a.idpedido = %s AND a.vigenciaacuerdo = true
-        ORDER BY a.fechaacordada DESC
-        LIMIT 1
+        ORDER BY a.fechaacordada DESC LIMIT 1
     """, (pedido_id,))
     
-    acuerdo = cur.fetchone()
-    cur.close()
-    conn.close()
+    res = cur.fetchone()
+    cur.close(); conn.close()
     
-    if not acuerdo:
+    if res:
         return jsonify({
-            'tiene_acuerdo': False,
-            'mensaje': 'Aun no hay acuerdo para este pedido'
+            'tiene_acuerdo': True, 
+            'precio': float(res[1]), 
+            'cantidad': float(res[2]), 
+            'estado': res[3],
+            'es_creador': session['usuario_id'] == res[4] # Compara el usuario de la sesión con el creador
         })
-    
-    return jsonify({
-        'tiene_acuerdo': True,
-        'idacuerdo': acuerdo[0],
-        'precio': float(acuerdo[1]),
-        'cantidad': float(acuerdo[2]),
-        'fecha': acuerdo[3],
-        'estado': acuerdo[4],
-        'creador_nombre': acuerdo[5] if acuerdo[5] else 'Alguien',
-        'es_creador': session['usuario_id'] == acuerdo[6]
-    })
-
+        
+    return jsonify({'tiene_acuerdo': False})
 
 @app.route('/api/pedidos/<int:pedido_id>/acuerdo', methods=['POST'])
 def crear_o_actualizar_acuerdo(pedido_id):
@@ -1245,6 +1144,8 @@ def rechazar_acuerdo(pedido_id):
     
     return jsonify({'mensaje': 'Acuerdo rechazado'})
 
+
+
 # ==================== INICIO ====================
 if __name__ == '__main__':
-    app.run(debug=True, host='0.0.0.0', port=5000)
+    app.run(debug=True, host='0.0.0.0')
