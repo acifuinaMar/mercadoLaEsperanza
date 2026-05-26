@@ -815,7 +815,7 @@ async function confirmarEntrega(pedidoId) {
     if (!confirm('¿Confirmas que la entrega se realizó correctamente?')) return;
 
     try {
-        // Asegúrate de que los slashes (/) coincidan exactamente
+        
         const response = await fetch(`/api/pedidos/${pedidoId}/confirmar-entrega`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' }
