@@ -1,0 +1,49 @@
+version: '3.8'
+
+services:
+  # Contenedor de la base de datos PostgreSQL
+  db:
+    image: postgres:15
+    container_name: agro_postgres
+    restart: always
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: maryori123
+      POSTGRES_DB: comunidad_agro
+      # Esta línea fuerza que la base de datos se cree en UTF8 desde cero
+      POSTGRES_INITDB_ARGS: "--encoding=UTF8 --lc-collate=C --lc-ctype=C"
+    ports:
+      - "5433:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./dataBase.sql:/docker-entrypoint-initdb.d/1.sql
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # Contenedor de la aplicacion Flask
+  web:
+    build: .
+    container_name: agro_flask
+    restart: always
+    ports:
+      - "5000:5000"
+    environment:
+      - DB_HOST=db
+      - DB_PORT=5432
+      - DB_USER=postgres
+      - DB_PASSWORD=maryori123
+      - DB_NAME=comunidad_agro
+      # Esta línea fuerza a Python a usar UTF-8 para las entradas y salidas
+      - PYTHONIOENCODING=utf-8
+    depends_on:
+      db:
+        condition: service_healthy
+    volumes:
+      - .:/app
+
+# Volumen persistente para los datos
+volumes:
+  postgres_data:

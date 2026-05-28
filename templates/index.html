@@ -9,7 +9,6 @@
 </head>
 <body>
     <div class="app-container">
-        <!-- Header con perfil -->
         <header class="header">
             <div class="logo">
                 <h1>Mercado La Esperanza</h1>
@@ -26,14 +25,13 @@
             </div>
         </header>
 
-        <!-- Pestañas principales -->
         <div class="tabs">
             <button class="tab-btn active" onclick="cambiarTab('productos')">Productos</button>
             <button class="tab-btn" id="pedidosTab" onclick="cambiarTab('pedidos')" style="display:none;">Mis Pedidos</button>
             <button class="tab-btn" id="adminTab" onclick="cambiarTab('admin')" style="display:none;">Admin</button>
+            <button id="nuevoProductoBtn" class="tab-btn" style="display: none;" onclick="mostrarNuevoProducto()">Nuevo Producto</button>
         </div>
 
-        <!-- Contenido dinámico -->
         <div id="productosTab" class="tab-content active">
             <div class="search-bar">
                 <input type="text" id="searchProducto" placeholder="Buscar producto..." onkeyup="filtrarProductos()">
@@ -54,7 +52,6 @@
             </div>
         </div>
 
-        <!-- Modal Login -->
         <div id="loginModal" class="modal">
             <div class="modal-content">
                 <span class="close" onclick="cerrarModal('loginModal')">&times;</span>
@@ -65,7 +62,6 @@
             </div>
         </div>
 
-        <!-- Registro -->
         <div id="registroModal" class="modal">
             <div class="modal-content">
                 <span class="close" onclick="cerrarModal('registroModal')">&times;</span>
@@ -89,17 +85,65 @@
             </div>
         </div>
 
-        <!-- Modal nuevo producto -->
         <div id="productoModal" class="modal">
             <div class="modal-content">
                 <span class="close" onclick="cerrarModal('productoModal')">&times;</span>
                 <h2>Nuevo Producto</h2>
                 <input type="text" id="prodNombre" placeholder="Nombre del producto">
-                <textarea id="prodDesc" placeholder="Descripción"></textarea>
-                <input type="number" id="prodPrecio" placeholder="Precio (Q)" step="0.01">
+                <textarea id="prodDesc" placeholder="Descripción" rows="3"></textarea>
+                <input type="number" id="prodPrecio" placeholder="Precio (Q)">
                 <input type="number" id="prodCantidad" placeholder="Cantidad disponible">
-                <input type="text" id="prodUnidad" placeholder="Unidad (kg, lb, unidad)" value="kg">
+                <input type="text" id="prodUnidad" placeholder="Unidad (kg, lb, und)" value="kg">
+                <label style="margin-top: 8px; display: block; font-size: 14px;">Imagen del producto (opcional)</label>
+                <input type="file" id="prodImagen" accept="image/*" style="margin-bottom: 10px;">
                 <button class="btn btn-primary" onclick="crearProducto()">Guardar Producto</button>
+            </div>
+        </div>
+
+        <div id="editarProductoModal" class="modal">
+            <div class="modal-content">
+                <span class="close" onclick="cerrarModal('editarProductoModal')">&times;</span>
+                <h2>Editar Producto</h2>
+                <input type="hidden" id="editId">
+                <input type="text" id="editNombre" placeholder="Nombre del producto">
+                <textarea id="editDesc" placeholder="Descripción" rows="3"></textarea>
+                <input type="number" id="editPrecio" placeholder="Precio (Q)" step="0.01">
+                <input type="number" id="editCantidad" placeholder="Cantidad disponible">
+                <button class="btn btn-primary" onclick="guardarEdicion()">Guardar Cambios</button>
+            </div>
+        </div>
+
+        <div id="chatModal" class="modal">
+            <div class="modal-content" style="max-width: 600px;">
+                <span class="close" onclick="cerrarModal('chatModal')">&times;</span>
+                <h2>Negociacion</h2>
+                <div id="chatPedidoInfo" style="background: #f0f0f0; padding: 10px; border-radius: 8px; margin-bottom: 10px;">
+                    <strong>Producto:</strong> <span id="chatProductoNombre"></span>
+                    <br>
+                    <strong>Acuerdo actual:</strong> <span id="chatAcuerdoInfo">Sin acuerdo</span>
+                </div>
+                
+                <div id="chatMensajes" style="height: 300px; overflow-y: auto; border: 1px solid #ddd; border-radius: 8px; padding: 10px; margin-bottom: 10px; background: #f9f9f9;">
+                    <div style="text-align: center; color: #999;">Cargando mensajes...</div>
+                </div>
+                
+                <div id="chatNegociacionPanel" style="margin-bottom: 10px; padding: 10px; background: #e8f5e9; border-radius: 8px;">
+                    <h4>Negociar precio y cantidad</h4>
+                    <div style="display: flex; gap: 10px; flex-wrap: wrap;">
+                        <input type="number" id="negPrecio" placeholder="Precio (Q)" step="0.01" style="flex: 1; padding: 8px;">
+                        <input type="number" id="negCantidad" placeholder="Cantidad" step="0.01" style="flex: 1; padding: 8px;">
+                        <button class="btn btn-primary" onclick="enviarPropuesta()">Enviar Propuesta</button>
+                    </div>
+                    <div id="negBotones" style="margin-top: 10px; display: none;">
+                        <button class="btn btn-success" onclick="aceptarAcuerdo()">Aceptar Acuerdo</button>
+                        <button class="btn btn-danger" onclick="rechazarAcuerdo()">Rechazar Acuerdo</button>
+                    </div>
+                </div>
+                
+                <div style="display: flex; gap: 10px;">
+                    <input type="text" id="chatMensajeInput" placeholder="Escribe un mensaje..." style="flex: 1; padding: 10px;">
+                    <button class="btn btn-primary" onclick="enviarMensaje()">Enviar</button>
+                </div>
             </div>
         </div>
     </div>
