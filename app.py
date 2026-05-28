@@ -1,9 +1,13 @@
-from flask import Flask, request, jsonify, session, render_template
+from flask import Flask, request, jsonify, session, render_template, send_from_directory
 from flask_cors import CORS
 import psycopg2
 from psycopg2.extras import RealDictCursor
 import bcrypt
 import os
+from werkzeug.utils import secure_filename
+
+UPLOAD_FOLDER = os.path.join('static', 'uploads')
+os.makedirs(UPLOAD_FOLDER, exist_ok=True)
 
 app = Flask(__name__)
 app.secret_key = 'maryori123'
@@ -277,17 +281,19 @@ def listar_productos():
         SELECT p.idproducto, p.nombreproducto, p.descripcion, p.precio, 
                p.cantidaddisponible, u.abreviatura as unidad,
                pr.primernombre || ' ' || pr.primerapellido as productor_nombre,
-               p.idproductor
+               p.idproductor,
+               p.imagen
         FROM producto p
         JOIN unidadmedida u ON p.idunidadmedida = u.idunidad
         JOIN usuario pr ON p.idproductor = pr.idusuario
         WHERE p.activo = true AND pr.idestadousuario = 1
         ORDER BY p.fecharegistro DESC
     """)
+
     productos = cur.fetchall()
     cur.close()
     conn.close()
-    return jsonify([{'idproducto': p[0], 'nombreproducto': p[1], 'descripcion': p[2], 'precio': float(p[3]), 'cantidad_disponible': float(p[4]) if p[4] else 0, 'unidad': p[5], 'productor_nombre': p[6], 'idproductor': p[7]} for p in productos])
+    return jsonify([{'idproducto': p[0], 'nombreproducto': p[1], 'descripcion': p[2], 'precio': float(p[3]), 'cantidad_disponible': float(p[4]) if p[4] else 0, 'unidad': p[5], 'productor_nombre': p[6], 'idproductor': p[7], 'imagen': p[8]} for p in productos])
 
 @app.route('/api/mis-productos', methods=['GET'])
 def mis_productos():
@@ -307,11 +313,33 @@ def crear_producto():
     if 'usuario_id' not in session or session.get('rol') != 'productor':
         return jsonify({'error': 'No autorizado'}), 403
     try:
-        data = request.json
+        nombre = request.form.get('nombre')
+        descripcion = request.form.get('descripcion', '')
+        precio = request.form.get('precio')
+        cantidad = request.form.get('cantidad')
+
+        if not nombre or not precio or not cantidad:
+            return jsonify({'error': 'Faltan campos: nombre, precio, cantidad'}), 400
+
+        imagen_nombre = None
+        if 'imagen' in request.files:
+            file = request.files['imagen']
+            if file and file.filename != '':
+                imagen_nombre = secure_filename(file.filename)
+                file.save(os.path.join(UPLOAD_FOLDER, imagen_nombre))
+
         conn = get_db_connection()
         cur = conn.cursor()
-        cur.execute("INSERT INTO producto (nombreproducto, descripcion, precio, idunidadmedida, idproductor, cantidaddisponible, activo) VALUES (%s, %s, %s, %s, %s, %s, true) RETURNING idproducto", 
-                    (data['nombre'], data.get('descripcion', ''), data['precio'], 1, session['usuario_id'], data['cantidad']))
+
+        unidad = request.form.get('unidad', 'kg')
+        cur.execute("SELECT idunidad FROM unidadmedida WHERE abreviatura = %s OR nombreunidad = %s", (unidad, unidad))
+        unidad_row = cur.fetchone()
+        unidad_id = unidad_row[0] if unidad_row else 1
+
+        cur.execute("""
+            INSERT INTO producto (nombreproducto, descripcion, precio, idunidadmedida, idproductor, cantidaddisponible, activo, imagen)
+            VALUES (%s, %s, %s, %s, %s, %s, true, %s) RETURNING idproducto
+        """, (nombre, descripcion, precio, unidad_id, session['usuario_id'], cantidad, imagen_nombre))
         nuevo_id = cur.fetchone()[0]
         conn.commit()
         cur.close()
@@ -1145,7 +1173,9 @@ def rechazar_acuerdo(pedido_id):
     return jsonify({'mensaje': 'Acuerdo rechazado'})
 
 
-
+@app.route('/static/uploads/<filename>')
+def uploaded_file(filename):
+    return send_from_directory(UPLOAD_FOLDER, filename)
 # ==================== INICIO ====================
 if __name__ == '__main__':
     app.run(debug=True, host='0.0.0.0')

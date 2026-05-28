@@ -123,8 +123,13 @@ function mostrarProductos(productos) {
             `;
         }
         
+        const imgSrc = p.imagen
+            ? `/static/uploads/${p.imagen}`
+            : null;
+
         return `
             <div class="producto-card" data-nombre="${nombre.toLowerCase()}">
+                ${imgSrc ? `<img src="${imgSrc}" alt="${nombre}" style="width:100%;height:160px;object-fit:cover;border-radius:8px;margin-bottom:8px;">` : ''}
                 <div class="producto-nombre">${nombre}</div>
                 <div class="producto-precio">Q ${precio}</div>
                 <div class="producto-cantidad">${cantidad} ${unidad}</div>
@@ -484,38 +489,41 @@ async function crearProducto() {
     const precio = document.getElementById('prodPrecio');
     const cantidad = document.getElementById('prodCantidad');
     const unidad = document.getElementById('prodUnidad');
-    
+    const imagen = document.getElementById('prodImagen');
+
     if (!nombre || !precio || !cantidad) return;
-    
-    const data = {
-        nombre: nombre.value,
-        descripcion: descripcion ? descripcion.value : '',
-        precio: parseFloat(precio.value),
-        cantidad: parseFloat(cantidad.value),
-        unidad: unidad ? unidad.value : 'kg'
-    };
-    
-    if (!data.nombre || !data.precio || !data.cantidad) {
+
+    if (!nombre.value || !precio.value || !cantidad.value) {
         alert('Completa todos los campos');
         return;
     }
-    
+
+    const formData = new FormData();
+    formData.append('nombre', nombre.value);
+    formData.append('descripcion', descripcion ? descripcion.value : '');
+    formData.append('precio', precio.value);
+    formData.append('cantidad', cantidad.value);
+    formData.append('unidad', unidad ? unidad.value : 'kg');
+    if (imagen && imagen.files[0]) {
+        formData.append('imagen', imagen.files[0]);
+    }
+
     try {
         const res = await fetch('/api/productos', {
             method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify(data)
+            body: formData
         });
         const result = await res.json();
-        
+
         if (res.ok) {
-            alert(result.mensaje);
+            alert('Producto creado');
             cerrarModal('productoModal');
             cargarProductos();
             nombre.value = '';
             if (descripcion) descripcion.value = '';
             precio.value = '';
             cantidad.value = '';
+            if (imagen) imagen.value = '';
         } else {
             alert(result.error);
         }
